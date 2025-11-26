@@ -53,6 +53,12 @@ if __name__ == '__main__':
             info = [ast.literal_eval(i.split('=')[1]) for i in row['INFO'].split(';')[:4]]
             ref_dp = sum(info[3][:2])
             alt_dp = sum(info[3][2:])
+            
+            # NEW FILTER: remove variants with < 3 alt reads and AF < 15%
+            if alt_dp < 3 and ref_dp > 11:
+                vcf.drop(index=idx, inplace=True)
+                continue
+            
             GT = 1
             AD = '{},{}'.format(ref_dp, alt_dp)
             DP = sum(info[3])
