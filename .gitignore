@@ -2,6 +2,9 @@
 work/
 data/
 results/
+# Allow SnpEff database files shipped with the pipeline
+!resources/snpeff/data/
+!resources/snpeff/data/**
 .DS_Store
 testing/
 testing*

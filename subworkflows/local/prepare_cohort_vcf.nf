@@ -44,7 +44,23 @@ workflow PREPARE_COHORT_VCF {
 
     GATK_GENOTYPE_GVCFS(combined_ch, params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict])
 
-    SNPEFF(GATK_GENOTYPE_GVCFS.out, params.ref_fasta)
+    // Stage SnpEff config + DB directory when a custom config is provided (e.g. M. bovis).
+    // When snpeff_config_file is empty (Mtb default), pass the NO_FILE sentinel so the module
+    // falls back to the container's pre-installed DB (no snpEff build step, no -c flag).
+    def no_file       = file("${projectDir}/assets/NO_FILE")
+    snpeff_config_ch  = params.snpeff_config_file
+        ? Channel.fromPath(params.snpeff_config_file, checkIfExists: true)
+        : Channel.value(no_file)
+    snpeff_db_ch      = params.snpeff_db_dir
+        ? Channel.fromPath(params.snpeff_db_dir, type: 'dir', checkIfExists: true)
+        : Channel.value(no_file)
+
+    SNPEFF(
+        GATK_GENOTYPE_GVCFS.out,
+        params.ref_fasta,
+        snpeff_config_ch,
+        snpeff_db_ch
+    )
 
     BGZIP(SNPEFF.out)
 

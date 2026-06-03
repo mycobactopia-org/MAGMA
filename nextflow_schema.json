@@ -418,7 +418,7 @@
                 },
                 "skip_ismapper": {
                     "type": "boolean",
-                    "description": "Skip ISMapper IS-element insertion site detection.",
+                    "description": "Skip ISMapper IS-element insertion site detection. Set to true for M. bovis (no IS900 query sequences available yet).",
                     "default": false,
                     "fa_icon": "fas fa-forward",
                     "hidden": true
@@ -465,21 +465,25 @@
             "properties": {
                 "snpeff_genome_id": {
                     "type": "string",
-                    "description": "SnpEff genome database identifier. Must match a built database in snpeff_db_dir.",
+                    "description": "SnpEff genome database identifier (e.g. Mycobacterium_tuberculosis_h37rv for Mtb, mbovis_AF2122 for M. bovis). Overridden by organism profiles.",
                     "default": "Mycobacterium_tuberculosis_h37rv",
                     "fa_icon": "fas fa-database"
                 },
                 "snpeff_config_file": {
                     "type": "string",
                     "format": "file-path",
-                    "description": "Path to the SnpEff configuration file (snpEff.config).",
-                    "fa_icon": "fas fa-file"
+                    "description": "Path to a custom SnpEff config file (snpEff.config). Empty string (default for Mtb) uses the container's pre-installed database. Set to resources/snpeff/snpEff.config via the mbovis profile.",
+                    "default": "",
+                    "fa_icon": "fas fa-file",
+                    "hidden": true
                 },
                 "snpeff_db_dir": {
                     "type": "string",
                     "format": "directory-path",
-                    "description": "Directory containing the SnpEff genome database for snpeff_genome_id.",
-                    "fa_icon": "fas fa-folder"
+                    "description": "Directory containing the custom SnpEff genome database (genes.gff + sequences.fa). Empty string (default for Mtb) uses the container's pre-installed database. Set automatically by organism profiles.",
+                    "default": "",
+                    "fa_icon": "fas fa-folder",
+                    "hidden": true
                 }
             }
         },

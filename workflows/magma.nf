@@ -56,10 +56,12 @@ include { GATK_MARK_DUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../module
 include { GATK_BASE_RECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/local/gatk/apply_bqsr'
 include { DELLY_CALL               } from '../modules/local/delly/call'
-include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/local/bcftools/view'
-include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY } from '../modules/local/bcftools/merge'
-include { BGZIP as BGZIP_MINOR_VARIANTS          } from '../modules/local/bgzip/bgzip'
+include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY    } from '../modules/local/bcftools/view'
+include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_ISMAPPER } from '../modules/local/bcftools/view'
+include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY  } from '../modules/local/bcftools/merge'
+include { BGZIP as BGZIP_MINOR_VARIANTS           } from '../modules/local/bgzip/bgzip'
 include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_LOFREQ } from '../modules/local/bcftools/merge'
+include { ISMAPPER                                } from '../modules/local/ismapper/ismapper'
 
 // ── TB drug-resistance & structural variant profiles ──────────────────────────
 include { TBPROFILER_VCF_PROFILE as TBPROFILER_VCF_PROFILE_DELLY  } from '../modules/local/tbprofiler/vcf_profile'
@@ -394,6 +396,23 @@ workflow MAGMA {
             TBPROFILER_VCF_PROFILE_DELLY.out.collect(),
             resistanceDb
         )
+
+        // =====================================================================
+        // ISMAPPER — IS element insertion site detection
+        // Disabled by default for M. bovis (skip_ismapper = true in mbovis profile)
+        // until IS900 query sequences are assembled.
+        // =====================================================================
+
+        if (!params.skip_ismapper) {
+            ISMAPPER(
+                approved_fastqs_ch,
+                params.ref_fasta_gb,
+                params.ref_fasta,
+                params.queries_multifasta
+            )
+
+            BCFTOOLS_VIEW_ISMAPPER(ISMAPPER.out.formatted_vcf)
+        }
 
         // =====================================================================
         // MERGE_WF — cohort joint-genotyping + phylogeny
