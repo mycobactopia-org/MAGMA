@@ -82,28 +82,19 @@ workflow PIPELINE_INITIALISATION {
     )
 
     //
-    // Create channel from input file provided through params.input
+    // Samplesheet channel.
     //
-
-    channel
-        .fromList(samplesheetToList(input, "${projectDir}/assets/schema_input.json"))
-        .map {
-            meta, fastq_1, fastq_2 ->
-                if (!fastq_2) {
-                    return [ meta.id, meta + [ single_end:true ], [ fastq_1 ] ]
-                } else {
-                    return [ meta.id, meta + [ single_end:false ], [ fastq_1, fastq_2 ] ]
-                }
-        }
-        .groupTuple()
-        .map { samplesheet ->
-            validateInputSamplesheet(samplesheet)
-        }
-        .map {
-            meta, fastqs ->
-                return [ meta, fastqs.flatten() ]
-        }
-        .set { ch_samplesheet }
+    // MAGMA does NOT use the nf-core/nf-schema samplesheet model. It validates
+    // its own 9-column samplesheet (study,sample,library,attempt,flowcell,lane,
+    // index_sequence,r1,r2) via the SAMPLESHEET_VALIDATION process inside
+    // workflows/magma.nf, reading params.input_samplesheet directly. The
+    // nf-schema parser (samplesheetToList against assets/schema_input.json,
+    // which expects sample/fastq_1/fastq_2) cannot parse the MAGMA format and
+    // would abort initialisation. MAGMA never consumes this channel, so emit an
+    // empty one for nf-core template compatibility and let input_samplesheet be
+    // the single source of truth.
+    //
+    ch_samplesheet = Channel.empty()
 
     emit:
     samplesheet = ch_samplesheet
