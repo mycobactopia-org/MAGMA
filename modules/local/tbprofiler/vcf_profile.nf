@@ -20,7 +20,12 @@ process TBPROFILER_VCF_PROFILE {
 
     script:
     def args      = task.ext.args ?: ''
-    def optionalDb = resistanceDb.name != 'NO_FILE' ? "--db ${resistanceDb.name}" : ""
+    // Match torch-magma: when no external resistance DB is supplied the callers
+    // pass an empty list ([]), so use a truthiness check (an empty list is falsy)
+    // → omit --db entirely and let tb-profiler use the container's built-in tbdb.
+    // The previous `.name != 'NO_FILE'` test produced `--db []` for an empty list
+    // (`[].name` == []), which tb-profiler rejects ("Can't find the database []").
+    def optionalDb = resistanceDb ? "--db ${resistanceDb.name}" : ""
     """
     bcftools view ${mergedVcf} | sed 's/${params.ref_fasta_basename}/Chromosome/g' > intermediate.vcf
 
