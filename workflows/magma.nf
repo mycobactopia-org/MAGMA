@@ -4,7 +4,7 @@
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 include { FASTQC                  } from '../modules/nf-core/fastqc/main'
-include { MULTIQC                 } from '../modules/nf-core/multiqc/main'
+include { MULTIQC                 } from '../modules/local/multiqc/main'
 include { paramsSummaryMap        } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
 include { softwareVersionsToYAML  } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -306,6 +306,9 @@ workflow MAGMA {
             UTILS_COHORT_STATS.out
         )
 
+        // MultiQC (MAGMA): the merged cohort stats feed preprocess_multiqc_input.py
+        ch_multiqc_files = ch_multiqc_files.mix(UTILS_MERGE_COHORT_STATS.out.merged_cohort_stats_ch)
+
         // Parse merged cohort stats to identify all samples and approved samples
         all_samples_ch = UTILS_MERGE_COHORT_STATS.out.merged_cohort_stats_ch
             .splitCsv(header: false, skip: 1, sep: '\t')
@@ -444,6 +447,10 @@ workflow MAGMA {
                     PHYLOGENY_ANALYSIS_EXCOMPLEX.out.snpsites_tree_tuple,
                     Channel.value('ExDR.ExComplex')
                 )
+
+                // MultiQC (MAGMA): the ExComplex SNP-distance matrix feeds
+                // preprocess_multiqc_input.py (joint.ExDR.ExComplex.snp_dists.tsv)
+                ch_multiqc_files = ch_multiqc_files.mix(PHYLOGENY_ANALYSIS_EXCOMPLEX.out.snp_dists_ch)
             }
 
             // IncComplex phylogeny (excludes DR loci only)
@@ -513,38 +520,23 @@ workflow MAGMA {
         )
 
     // =========================================================================
-    // MultiQC
+    // MultiQC — faithful to standard MAGMA (preprocess_multiqc_input.py + multiqc)
     // =========================================================================
-
-    ch_multiqc_files = ch_multiqc_files.mix(ch_collated_versions)
-
-    def ch_summary_params             = paramsSummaryMap(workflow, parameters_schema: "nextflow_schema.json")
-    def ch_workflow_summary           = channel.value(paramsSummaryMultiqc(ch_summary_params))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_workflow_summary.collectFile(name: 'workflow_summary_mqc.yaml'))
-
-    def ch_multiqc_custom_methods_description = multiqc_methods_description
-        ? file(multiqc_methods_description, checkIfExists: true)
-        : file("${projectDir}/assets/methods_description_template.yml", checkIfExists: true)
-    def ch_methods_description = channel.value(methodsDescriptionText(ch_multiqc_custom_methods_description))
-    ch_multiqc_files = ch_multiqc_files.mix(ch_methods_description.collectFile(name: 'methods_description_mqc.yaml', sort: true))
+    // Note: ch_collated_versions above is still published to pipeline_info. We do
+    // NOT mix the nf-core boilerplate (versions / workflow-summary / methods) into
+    // the MULTIQC input — standard MAGMA feeds MULTIQC only the FASTQC reports,
+    // the merged cohort stats and the ExComplex SNP-distance matrix (mixed in
+    // above), matching the reference .command.sh exactly.
 
     MULTIQC(
-        ch_multiqc_files.flatten().collect().map { files ->
-            [
-                [id: 'magma'],
-                files,
-                multiqc_config
-                    ? file(multiqc_config, checkIfExists: true)
-                    : file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true),
-                multiqc_logo ? file(multiqc_logo, checkIfExists: true) : [],
-                [],
-                [],
-            ]
-        }
+        multiqc_config
+            ? file(multiqc_config, checkIfExists: true)
+            : file("${projectDir}/assets/multiqc_config.yml", checkIfExists: true),
+        ch_multiqc_files.flatten().collect()
     )
 
     emit:
-    multiqc_report = MULTIQC.out.report.map { _meta, report -> [report] }.toList()
+    multiqc_report = MULTIQC.out.report.toList()
     versions       = ch_versions
 }
 
