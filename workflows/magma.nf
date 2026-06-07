@@ -31,7 +31,7 @@ include { GATK_COLLECT_WGS_METRICS } from '../modules/local/gatk/collect_wgs_met
 include { GATK_FLAG_STAT           } from '../modules/local/gatk/flag_stat'
 include { LOFREQ_INDELQUAL         } from '../modules/local/lofreq/indelqual'
 include { LOFREQ_CALL              } from '../modules/local/lofreq/call'
-include { LOFREQ_CALL as LOFREQ_CALL_NTM } from '../modules/local/lofreq/call'
+include { LOFREQ_CALL_NTM          } from '../modules/local/lofreq/call_ntm'
 include { LOFREQ_FILTER            } from '../modules/local/lofreq/filter'
 include { UTILS_SAMPLE_STATS       } from '../modules/local/utils/sample_stats'
 include { UTILS_COHORT_STATS       } from '../modules/local/utils/cohort_stats'
