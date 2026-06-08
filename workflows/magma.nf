@@ -340,11 +340,17 @@ workflow MAGMA {
             }
             .groupTuple()
 
-        // Join with approved samples to filter
+        // Join with approved samples to filter.
+        // Shapes after join:
+        //   all_samples_ch.map { [it[0], it[0]] }                       → [id, id]
+        //   delly_normalize_ch.map { meta, bam -> [meta.id, meta, bam] } → [id, meta, [bams]]
+        //   join (key=id)                                                → [id, id, meta, [bams]]
+        // The previous 3-arg destructure dropped the second id, causing
+        // 'Invalid method invocation `call` with arguments: [id, id, meta, [bam]]'.
         delly_filtered_ch = all_samples_ch
             .map { [ it[0], it[0] ] }
             .join(delly_normalize_ch.map { meta, bam -> [ meta.id, meta, bam ] })
-            .map { _id, meta, bam -> [ meta, bam ] }
+            .map { _id, _id2, meta, bam -> [ meta, bam ] }
 
         SAMTOOLS_MERGE_DELLY(delly_filtered_ch)
         GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out)
