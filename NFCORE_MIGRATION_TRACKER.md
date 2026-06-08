@@ -60,12 +60,37 @@ After each commit, the byte-identity check is:
 | 22 | `samtools/merge` (×2 aliases) | pending | — | Tier B note: arg shape differs (`bams/*` glob vs file-list) — may need adapter or accept text divergence. |
 | 23 | `gatk/haplotype_caller` | LAST | — | gatk4's wrapper has many feature flags (DBSNP, intervals, DRAGSTR, bamout) plumbed via separate vars — careful `ext.args` mapping required. |
 
+## Container strategy after migration (preserved, not disrupted)
+
+The port already uses the idiomatic nf-core pattern: `withName: '<pattern>' { container = '…' }`
+blocks in `conf/docker.config`, `conf/singularity.config`, `conf/apptainer.config`,
+`conf/podman.config`, and `conf/abc_cluster.config`. **These patterns match by
+process alias name, not by module file path**, so they keep working unchanged
+when a module moves from `modules/local/` to `modules/nf-core/`.
+
+Proof in-repo: BWA_MEM is already an nf-core module and `conf/docker.config`
+routes it into `magma-container-2` via `withName: 'BWA.*|…' { container = … }`.
+This is exactly how the rest of Tier A will behave post-migration — emitted
+commands stay byte-identical AND the user keeps the bundled-container option.
+
+After Tier A the user has three container modes:
+1. **Bundled MAGMA containers** (current default) — any of the existing
+   `-profile docker / singularity / apptainer / podman / abc_cluster` profiles.
+   No change.
+2. **Per-process biocontainers** (new, free) — the nf-core module's baked-in
+   `quay.io/biocontainers/<tool>:<version>` defaults kick in when no profile
+   overrides container. Suits laptop / Tower / nf-core launch usage.
+3. **Mix-and-match** — user writes a config that applies `withName` for some
+   tool families and leaves others on biocontainers.
+
 ## Gotchas
 
 - `nf-core modules install` auto-creates `conf/containers_*.config` files and a
-  scratch `magma-results/` dir. They're scaffolding noise and **should not be
-  committed** — our container strategy is per-process via `abc_cluster.config`.
-  Leave them untracked.
+  scratch `magma-results/` dir. They define `withName: 'FASTQC' { container = '…' }`
+  per OS/arch/runtime — if loaded they would **shadow the bundled-container
+  profiles** that route tools into `magma-container-1/2`. Leave them untracked
+  and do not register them as profiles. The nf-core module's in-file container
+  default is enough fallback for mode 2 above.
 - Lint shows pre-existing deprecation warnings in unrelated modules (stub-block
   variable scope on `tbprofiler/collate.nf` and `utils/eliminate_annotation.nf`).
   Not migration concerns; ignore.
