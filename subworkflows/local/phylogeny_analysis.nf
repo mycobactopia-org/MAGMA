@@ -1,7 +1,7 @@
 include { GATK_SELECT_VARIANTS as GATK_SELECT_VARIANTS_PHYLOGENY } from '../../modules/local/gatk/select_variants'
 include { GATK_VARIANTS_TO_TABLE                                  } from '../../modules/local/gatk/variants_to_table'
 include { SNPSITES                                                } from '../../modules/local/snpsites/snpsites'
-include { SNPDISTS                                                } from '../../modules/local/snpdists/snpdists'
+include { SNPDISTS                                                } from '../../modules/nf-core/snpdists/main'
 include { IQTREE                                                  } from '../../modules/local/iqtree/iqtree'
 
 
@@ -44,11 +44,22 @@ workflow PHYLOGENY_ANALYSIS {
 
     SNPSITES(prefix_ch, GATK_VARIANTS_TO_TABLE.out)
 
-    SNPDISTS(prefix_ch, SNPSITES.out)
+    // SNPDISTS uses the standard nf-core module (single meta-channel input).
+    // The phylogeny prefix that the other local modules in this subworkflow take
+    // as a separate `val` channel is folded into meta as `phylo_prefix` so that
+    // `conf/modules.config` can set ext.prefix = "${meta.id}.${meta.phylo_prefix}.snp_dists"
+    // and reproduce torch-magma's filename joint.<prefix>.snp_dists.tsv exactly.
+    snpdists_input_ch = prefix_ch
+        .combine(SNPSITES.out)
+        .map { phylo_prefix, meta, fasta -> [ meta + [phylo_prefix: phylo_prefix], fasta ] }
+
+    SNPDISTS(snpdists_input_ch)
 
     IQTREE(prefix_ch, SNPSITES.out)
 
     emit:
     snpsites_tree_tuple = SNPSITES.out.join(IQTREE.out.tree_tuple) // [ meta, fasta, treefile ]
-    snp_dists_ch        = SNPDISTS.out.snp_dists_file
+    // Match the prior emit shape (bare path channel) by dropping meta — the only
+    // downstream consumer (magma.nf MULTIQC mix) doesn't need it.
+    snp_dists_ch        = SNPDISTS.out.tsv.map { _meta, tsv -> tsv }
 }

@@ -19,6 +19,11 @@
                         "branch": "master",
                         "git_sha": "008f9d3e61209bf995edac3ba531f54e269e1215",
                         "installed_by": ["modules"]
+                    },
+                    "snpdists": {
+                        "branch": "master",
+                        "git_sha": "ef9f880ba4dd24c3601ad732d08ef2b94e6a6038",
+                        "installed_by": ["modules"]
                     }
                 }
             },
