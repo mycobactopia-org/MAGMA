@@ -410,11 +410,24 @@ workflow MAGMA {
 
         if (!params.skip_merge_analysis) {
 
-            // Build gvcf channel: [ meta, tbi, vcf ]
+            // Build gvcf channel keyed on the sample name so it can join the
+            // approved-samples channel (which carries sample-name Strings).
+            // Port note: GATK_HAPLOTYPE_CALLER.out.gvcf_ch is [meta_MAP, tbi, gvcf];
+            // torch-magma's equivalent was [sampleName_STR, tbi, gvcf] (which is
+            // why a 3-element collate worked there with a String key). After
+            // .collect().flatten() we re-collate to 3 and project the meta map
+            // to its id so the .join key matches approved_samples_ch [sampleName].
+            //
+            // Without this fix the join silently produced an empty channel
+            // (meta map ≠ string), the entire merge_wf (PREPARE_COHORT_VCF,
+            // SNP_ANALYSIS, INDEL_ANALYSIS, MAJOR_VARIANT_ANALYSIS,
+            // PHYLOGENY_*, CLUSTER_*) never fired, and MULTIQC failed at
+            // preprocess_multiqc_input.py for missing joint.ExDR.ExComplex.snp_dists.tsv.
             collated_gvcfs_ch = GATK_HAPLOTYPE_CALLER.out.gvcf_ch
                 .collect()
                 .flatten()
                 .collate(3)
+                .map { meta, tbi, vcf -> [ meta.id, tbi, vcf ] }
 
             // Filter to approved samples only
             selected_gvcfs_ch = collated_gvcfs_ch
