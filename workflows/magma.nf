@@ -19,7 +19,7 @@ include { UTILS_FASTQ_COHORT_VALIDATION } from '../modules/local/utils/fastq_coh
 include { BWA_MEM                  } from '../modules/local/bwa/mem'
 
 // ── Per-sample calling ─────────────────────────────────────────────────────────
-include { SAMTOOLS_MERGE           } from '../modules/local/samtools/merge'
+include { SAMTOOLS_MERGE           } from '../modules/nf-core/samtools/merge/main'
 include { SAMTOOLS_INDEX           } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/main'
@@ -50,7 +50,7 @@ include { UTILS_CAT_SPOTYPING      } from '../modules/local/utils/cat_spotyping'
 
 // ── Structural variants (DELLY) ────────────────────────────────────────────────
 include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/mem'
-include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/local/samtools/merge'
+include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/nf-core/samtools/merge/main'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/samtools/index/main'
 include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/nf-core/gatk4/markduplicates/main'
 include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/nf-core/gatk4/baserecalibrator/main'
@@ -207,11 +207,15 @@ workflow MAGMA {
             }
             .groupTuple()
 
-        SAMTOOLS_MERGE(normalize_libraries_ch)
+        // nf-core SAMTOOLS_MERGE adds index_files + fasta value tuple inputs;
+        // for BAM-only merging both are empty. Pad and pass an empty fasta tuple.
+        def samtools_merge_input_ch = normalize_libraries_ch.map { meta, bams -> [meta, bams, []] }
+        def samtools_merge_ref_ch   = Channel.value([ [id: 'none'], [], [], [] ])
+        SAMTOOLS_MERGE(samtools_merge_input_ch, samtools_merge_ref_ch)
 
         // nf-core gatk4/markduplicates also takes (optional) fasta/fai for CRAM
         // conversion; we run in BAM mode so pass [] for both.
-        GATK_MARK_DUPLICATES(SAMTOOLS_MERGE.out, [], [])
+        GATK_MARK_DUPLICATES(SAMTOOLS_MERGE.out.bam, [], [])
 
         // BQSR (disabled by default for Mtb) — uses standard nf-core modules.
         // nf-core's BaseRecalibrator wants [meta, bam, bai, intervals]; we have
@@ -394,7 +398,8 @@ workflow MAGMA {
             .join(delly_normalize_ch.map { meta, bam -> [ meta.id, meta, bam ] })
             .map { _id, _id2, meta, bam -> [ meta, bam ] }
 
-        SAMTOOLS_MERGE_DELLY(delly_filtered_ch)
+        def samtools_merge_delly_input_ch = delly_filtered_ch.map { meta, bams -> [meta, bams, []] }
+        SAMTOOLS_MERGE_DELLY(samtools_merge_delly_input_ch, Channel.value([ [id: 'none'], [], [], [] ]))
         GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out, [], [])
 
         if (!params.skip_base_recalibration) {
