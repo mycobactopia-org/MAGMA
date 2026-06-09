@@ -42,9 +42,10 @@ After each commit, the byte-identity check is:
 | 2 | `iqtree` | pending | — | Same 2-channel pattern as snpdists; same adapter approach. Plus params-driven `if/else` → push into `ext.args` closure (case-on `params.iqtree_*`). |
 | 3 | `snpsites` | pending | — | Same 2-channel adapter as snpdists. |
 | 4 | `samtools/index` | ✅ MIGRATED | `2eff953` | 3 aliases (`SAMTOOLS_INDEX`, `_DELLY`, `_LOFREQ`). nf-core emits 2-tuple; downstream wants 3-tuple `[meta, bai, bam]`. Resolved with `SAMTOOLS_INDEX.out.index.join(bam_ch)` adapter at each of the 3 call sites. Cosmetic command diff: nf-core adds `-@ ${task.cpus}`. |
-| 6 | `delly/call` | pending | — | Standalone; DELLY constraint in `abc_cluster.config` is by alias so stays. |
+| 6 | `delly/call` | ✅ MIGRATED | `e15ee0d` | Most involved adapter so far — pad 3-tuple to 6-tuple with `[]` for unused optionals (vcf/vcf_index/exclude_bed), wrap fasta+fai as separate value tuples, add `'bcf'` suffix selector. Cosmetic command diff: `--genome` (long) vs `-g`, `--outfile` vs `-o`, `--threads` added. |
 | 7 | `lofreq/call` | pending | — | nf-core: `lofreq/callparallel`. ext.args carries the per-call flags (NTM has `-r region`). |
-| 8 | `lofreq/filter` | pending | — | Direct match. |
+| 8 | `lofreq/filter` | ✅ MIGRATED | `6dacd7e` | Direct input match. nf-core writes bgzipped `.vcf.gz`, port wrote uncompressed `.vcf` — change is publish-only (`LOFREQ_FILTER.out` not consumed downstream; UTILS_REFORMAT_LOFREQ takes raw LOFREQ_CALL output). |
+| 13 | `gatk/index_feature_file` (×2 active aliases) | ✅ MIGRATED | `dc3af24` | nf-core emits `[meta, tbi]`; downstream wants `[meta, tbi, vcf]` (COHORT) or `[tbi, vcf]` (LOFREQ). Both rebuilt via `.index.join(bgzip_ch)` adapter. Per-alias `ext.args` for `-O <name>.tbi` still applies. Cosmetic command diff: `--input`/`--tmp-dir .`/`-Xmx${mem}M`/`-XX:-UsePerfData` added. |
 | 10 | `gatk/combine_gvcfs` | pending | — | `--variant ${input_list}` shape matches. |
 | 11 | `gatk/genotype_gvcfs` | pending | — | Direct match. |
 | 12 | `gatk/variants_to_table` | pending | — | Direct match. |
