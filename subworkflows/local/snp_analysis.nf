@@ -1,6 +1,6 @@
 include { GATK_SELECT_VARIANTS as GATK_SELECT_VARIANTS_SNP             } from '../../modules/local/gatk/select_variants'
 include { GATK_VARIANT_RECALIBRATOR as GATK_VARIANT_RECALIBRATOR_SNP   } from '../../modules/local/gatk/variant_recalibrator'
-include { GATK_APPLY_VQSR as GATK_APPLY_VQSR_SNP                       } from '../../modules/local/gatk/apply_vqsr'
+include { GATK4_APPLYVQSR as GATK_APPLY_VQSR_SNP                       } from '../../modules/nf-core/gatk4/applyvqsr/main'
 include { GATK_SELECT_VARIANTS_EXCLUSION as GATK_SELECT_VARIANTS_EXCLUSION_SNP } from '../../modules/local/gatk/select_variants_exclusion'
 include { OPTIMIZE_VARIANT_RECALIBRATION } from './optimize_variant_recalibration'
 
@@ -82,17 +82,32 @@ workflow SNP_ANALYSIS {
             .join(GATK_VARIANT_RECALIBRATOR_SNP.out.tranchesFile)
     }
 
+    // Migration: GATK_APPLY_VQSR is now the standard nf-core gatk4/applyvqsr.
+    //   Local input: 'SNP', [meta, tbi, vcf, recalTbi, recalVcf, tranches],
+    //                ref_fasta, [ref_fasta_fai, ref_fasta_dict]
+    //   nf-core    : [meta, vcf, vcf_tbi, recal, recal_index, tranches],
+    //                fasta, fai, dict  (note tuple element order swapped:
+    //                vcf is index 1 not 2, recal at index 3, recal_index at 4)
+    // The 'SNP' analysisMode val is moved into ext.args (-mode SNP) in
+    // conf/modules.config; the output filename suffix is preserved via ext.prefix.
+    def apply_vqsr_input_ch = vqsr_ch.map { meta, tbi, vcf, recalTbi, recalVcf, tranches ->
+        [ meta, vcf, tbi, recalVcf, recalTbi, tranches ]
+    }
     GATK_APPLY_VQSR_SNP(
-        'SNP',
-        vqsr_ch,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        apply_vqsr_input_ch,
+        file(params.ref_fasta),
+        file(params.ref_fasta_fai),
+        file(params.ref_fasta_dict)
     )
+
+    // Downstream consumers used the local `filteredVcfTuple` emit shape [meta, tbi, vcf].
+    // nf-core gatk4/applyvqsr emits vcf / tbi separately; recompose with .join.
+    def apply_vqsr_snp_filtered_ch = GATK_APPLY_VQSR_SNP.out.tbi.join(GATK_APPLY_VQSR_SNP.out.vcf)
 
     // Exclude rRNA loci
     GATK_SELECT_VARIANTS_EXCLUSION_SNP(
         'SNP',
-        GATK_APPLY_VQSR_SNP.out.filteredVcfTuple,
+        apply_vqsr_snp_filtered_ch,
         params.rrna_list,
         params.ref_fasta,
         [params.ref_fasta_fai, params.ref_fasta_dict]
@@ -100,5 +115,5 @@ workflow SNP_ANALYSIS {
 
     emit:
     snp_exc_vcf_ch = GATK_SELECT_VARIANTS_EXCLUSION_SNP.out   // rRNA-excluded SNP VCF
-    snp_inc_vcf_ch = GATK_APPLY_VQSR_SNP.out.filteredVcfTuple // rRNA-included SNP VCF
+    snp_inc_vcf_ch = apply_vqsr_snp_filtered_ch // rRNA-included SNP VCF — [meta, tbi, vcf]
 }
