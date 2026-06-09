@@ -23,7 +23,7 @@ include { SAMTOOLS_MERGE           } from '../modules/local/samtools/merge'
 include { SAMTOOLS_INDEX           } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/main'
-include { GATK_MARK_DUPLICATES     } from '../modules/local/gatk/mark_duplicates'
+include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES     } from '../modules/nf-core/gatk4/markduplicates/main'
 include { GATK_BASE_RECALIBRATOR   } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR          } from '../modules/local/gatk/apply_bqsr'
 include { GATK_HAPLOTYPE_CALLER    } from '../modules/local/gatk/haplotype_caller'
@@ -52,7 +52,7 @@ include { UTILS_CAT_SPOTYPING      } from '../modules/local/utils/cat_spotyping'
 include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/mem'
 include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/local/samtools/merge'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/samtools/index/main'
-include { GATK_MARK_DUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/local/gatk/mark_duplicates'
+include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/nf-core/gatk4/markduplicates/main'
 include { GATK_BASE_RECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/local/gatk/apply_bqsr'
 include { DELLY_CALL               } from '../modules/nf-core/delly/call/main'
@@ -209,12 +209,14 @@ workflow MAGMA {
 
         SAMTOOLS_MERGE(normalize_libraries_ch)
 
-        GATK_MARK_DUPLICATES(SAMTOOLS_MERGE.out)
+        // nf-core gatk4/markduplicates also takes (optional) fasta/fai for CRAM
+        // conversion; we run in BAM mode so pass [] for both.
+        GATK_MARK_DUPLICATES(SAMTOOLS_MERGE.out, [], [])
 
         // BQSR (disabled by default for Mtb)
         if (!params.skip_base_recalibration) {
             GATK_BASE_RECALIBRATOR(
-                GATK_MARK_DUPLICATES.out.bam_tuple,
+                GATK_MARK_DUPLICATES.out.bam,
                 params.dbsnp_vcf,
                 params.ref_fasta,
                 [params.ref_fasta_fai, params.ref_fasta_dict, params.dbsnp_vcf_tbi]
@@ -226,7 +228,7 @@ workflow MAGMA {
             )
             recalibrated_bam_ch = GATK_APPLY_BQSR.out
         } else {
-            recalibrated_bam_ch = GATK_MARK_DUPLICATES.out.bam_tuple
+            recalibrated_bam_ch = GATK_MARK_DUPLICATES.out.bam
         }
 
         SAMTOOLS_INDEX(recalibrated_bam_ch)
@@ -380,11 +382,11 @@ workflow MAGMA {
             .map { _id, _id2, meta, bam -> [ meta, bam ] }
 
         SAMTOOLS_MERGE_DELLY(delly_filtered_ch)
-        GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out)
+        GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out, [], [])
 
         if (!params.skip_base_recalibration) {
             GATK_BASE_RECALIBRATOR_DELLY(
-                GATK_MARK_DUPLICATES_DELLY.out.bam_tuple,
+                GATK_MARK_DUPLICATES_DELLY.out.bam,
                 params.dbsnp_vcf,
                 params.ref_fasta,
                 [params.ref_fasta_fai, params.ref_fasta_dict, params.dbsnp_vcf_tbi]
@@ -396,7 +398,7 @@ workflow MAGMA {
             )
             recal_delly_ch = GATK_APPLY_BQSR_DELLY.out
         } else {
-            recal_delly_ch = GATK_MARK_DUPLICATES_DELLY.out.bam_tuple
+            recal_delly_ch = GATK_MARK_DUPLICATES_DELLY.out.bam
         }
 
         SAMTOOLS_INDEX_DELLY(recal_delly_ch)
