@@ -55,7 +55,7 @@ include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/sam
 include { GATK_MARK_DUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/local/gatk/mark_duplicates'
 include { GATK_BASE_RECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/local/gatk/apply_bqsr'
-include { DELLY_CALL               } from '../modules/local/delly/call'
+include { DELLY_CALL               } from '../modules/nf-core/delly/call/main'
 include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/local/bcftools/view'
 include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY } from '../modules/local/bcftools/merge'
 include { BGZIP as BGZIP_MINOR_VARIANTS          } from '../modules/local/bgzip/bgzip'
@@ -393,10 +393,18 @@ workflow MAGMA {
         }
 
         SAMTOOLS_INDEX_DELLY(recal_delly_ch)
-        // Same [meta, bai, bam] rebuild as elsewhere — DELLY_CALL expects the 3-tuple.
-        def delly_indexed_bam_ch = SAMTOOLS_INDEX_DELLY.out.index.join(recal_delly_ch)
-        DELLY_CALL(delly_indexed_bam_ch, params.ref_fasta)
-        BCFTOOLS_VIEW_DELLY(DELLY_CALL.out)
+        // Adapt to the nf-core DELLY_CALL signature, which takes a wide tuple
+        //   (meta, input_bam, input_bai, vcf, vcf_index, exclude_bed)
+        // with the last three optional, plus separate fasta + fai value tuples
+        // and a 'bcf'/'vcf' suffix selector. MAGMA does discovery-mode DELLY
+        // calls (no genotyping VCF, no exclude bed) and wants .bcf output.
+        def delly_call_input_ch = SAMTOOLS_INDEX_DELLY.out.index
+            .join(recal_delly_ch)
+            .map { meta, bai, bam -> [ meta, bam, bai, [], [], [] ] }
+        def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta)     ])
+        def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta_fai) ])
+        DELLY_CALL(delly_call_input_ch, delly_call_fasta_ch, delly_call_fai_ch, 'bcf')
+        BCFTOOLS_VIEW_DELLY(DELLY_CALL.out.bcf)
 
         delly_vcfs_ch = BCFTOOLS_VIEW_DELLY.out
             .collect()
