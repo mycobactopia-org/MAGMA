@@ -24,8 +24,8 @@ include { SAMTOOLS_INDEX           } from '../modules/nf-core/samtools/index/mai
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/main'
 include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES     } from '../modules/nf-core/gatk4/markduplicates/main'
-include { GATK_BASE_RECALIBRATOR   } from '../modules/local/gatk/base_recalibrator'
-include { GATK_APPLY_BQSR          } from '../modules/local/gatk/apply_bqsr'
+include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR   } from '../modules/nf-core/gatk4/baserecalibrator/main'
+include { GATK4_APPLYBQSR as GATK_APPLY_BQSR          } from '../modules/nf-core/gatk4/applybqsr/main'
 include { GATK_HAPLOTYPE_CALLER    } from '../modules/local/gatk/haplotype_caller'
 include { GATK_COLLECT_WGS_METRICS } from '../modules/local/gatk/collect_wgs_metrics'
 include { GATK_FLAG_STAT           } from '../modules/local/gatk/flag_stat'
@@ -53,8 +53,8 @@ include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/me
 include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/local/samtools/merge'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/samtools/index/main'
 include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/nf-core/gatk4/markduplicates/main'
-include { GATK_BASE_RECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/local/gatk/base_recalibrator'
-include { GATK_APPLY_BQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/local/gatk/apply_bqsr'
+include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/nf-core/gatk4/baserecalibrator/main'
+include { GATK4_APPLYBQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/nf-core/gatk4/applybqsr/main'
 include { DELLY_CALL               } from '../modules/nf-core/delly/call/main'
 include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/local/bcftools/view'
 include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY } from '../modules/local/bcftools/merge'
@@ -213,20 +213,33 @@ workflow MAGMA {
         // conversion; we run in BAM mode so pass [] for both.
         GATK_MARK_DUPLICATES(SAMTOOLS_MERGE.out, [], [])
 
-        // BQSR (disabled by default for Mtb)
+        // BQSR (disabled by default for Mtb) — uses standard nf-core modules.
+        // nf-core's BaseRecalibrator wants [meta, bam, bai, intervals]; we have
+        // [meta, bam]. Pad with [] for bai (gatk auto-indexes input on the fly)
+        // and intervals. fasta/fai/dict/dbsnp/dbsnp_tbi all wrapped as value
+        // tuples. ApplyBQSR has a similar shape and takes the BQSR table joined
+        // back with the original bam.
         if (!params.skip_base_recalibration) {
+            def base_recal_input_ch = GATK_MARK_DUPLICATES.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
             GATK_BASE_RECALIBRATOR(
-                GATK_MARK_DUPLICATES.out.bam,
-                params.dbsnp_vcf,
-                params.ref_fasta,
-                [params.ref_fasta_fai, params.ref_fasta_dict, params.dbsnp_vcf_tbi]
+                base_recal_input_ch,
+                Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
+                Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
+                Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
+                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
+                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
             )
+            // ApplyBQSR input: [meta, bam, bai, bqsr_table, intervals]
+            def apply_bqsr_input_ch = GATK_BASE_RECALIBRATOR.out.table
+                .join(GATK_MARK_DUPLICATES.out.bam)
+                .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
             GATK_APPLY_BQSR(
-                GATK_BASE_RECALIBRATOR.out,
-                params.ref_fasta,
-                [params.ref_fasta_fai, params.ref_fasta_dict]
+                apply_bqsr_input_ch,
+                file(params.ref_fasta),
+                file(params.ref_fasta_fai),
+                file(params.ref_fasta_dict)
             )
-            recalibrated_bam_ch = GATK_APPLY_BQSR.out
+            recalibrated_bam_ch = GATK_APPLY_BQSR.out.bam
         } else {
             recalibrated_bam_ch = GATK_MARK_DUPLICATES.out.bam
         }
@@ -385,18 +398,25 @@ workflow MAGMA {
         GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out, [], [])
 
         if (!params.skip_base_recalibration) {
+            def base_recal_delly_input_ch = GATK_MARK_DUPLICATES_DELLY.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
             GATK_BASE_RECALIBRATOR_DELLY(
-                GATK_MARK_DUPLICATES_DELLY.out.bam,
-                params.dbsnp_vcf,
-                params.ref_fasta,
-                [params.ref_fasta_fai, params.ref_fasta_dict, params.dbsnp_vcf_tbi]
+                base_recal_delly_input_ch,
+                Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
+                Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
+                Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
+                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
+                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
             )
+            def apply_bqsr_delly_input_ch = GATK_BASE_RECALIBRATOR_DELLY.out.table
+                .join(GATK_MARK_DUPLICATES_DELLY.out.bam)
+                .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
             GATK_APPLY_BQSR_DELLY(
-                GATK_BASE_RECALIBRATOR_DELLY.out,
-                params.ref_fasta,
-                [params.ref_fasta_fai, params.ref_fasta_dict]
+                apply_bqsr_delly_input_ch,
+                file(params.ref_fasta),
+                file(params.ref_fasta_fai),
+                file(params.ref_fasta_dict)
             )
-            recal_delly_ch = GATK_APPLY_BQSR_DELLY.out
+            recal_delly_ch = GATK_APPLY_BQSR_DELLY.out.bam
         } else {
             recal_delly_ch = GATK_MARK_DUPLICATES_DELLY.out.bam
         }
