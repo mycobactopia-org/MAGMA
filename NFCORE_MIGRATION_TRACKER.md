@@ -36,15 +36,15 @@ After each commit, the byte-identity check is:
 
 | # | Module | Status | Commit | Notes |
 |---|---|---|---|---|
-| 1 | `snpdists` | ✅ MIGRATED | `d341654` | POC. Adapter folds `prefix_ch` into `meta.phylo_prefix`. Filename reproduced exactly via `ext.prefix`. Pending real-run verification once n9 completes. |
+| 1 | `snpdists` | ✅ MIGRATED | `9c4d846` | POC. Adapter folds `prefix_ch` into `meta.phylo_prefix`. Filename reproduced exactly via `ext.prefix`. Real-run verification pending (next end-to-end test). |
+| 5 | `samtools/stats` | ✅ MIGRATED | `e5491db` | Adapter: pad bam-only channel with `[]` for index slot; wrap ref as `[[id:'ref'], fasta, fai]` value tuple. Cosmetic diffs vs torch-magma (added `--threads`, long-form `--reference`, arg order) — same stats output. `ext.prefix = '${meta.id}.SamtoolStats'`. |
+| 9 | `lofreq/indelqual` | ✅ MIGRATED | `8726efd` | Adapter: wrap ref as `[[id:'ref'], fasta]` value tuple. `ext.args = '--dindel'`, `ext.prefix = '${meta.id}.dindel'`. Emits same dindel BAM; only flag order changes vs torch-magma. |
 | 2 | `iqtree` | pending | — | Same 2-channel pattern as snpdists; same adapter approach. Plus params-driven `if/else` → push into `ext.args` closure (case-on `params.iqtree_*`). |
 | 3 | `snpsites` | pending | — | Same 2-channel adapter as snpdists. |
-| 4 | `samtools/index` | pending | — | Standalone, no aliases. |
-| 5 | `samtools/stats` | pending | — | Standalone. |
+| 4 | `samtools/index` | ✅ MIGRATED | `2eff953` | 3 aliases (`SAMTOOLS_INDEX`, `_DELLY`, `_LOFREQ`). nf-core emits 2-tuple; downstream wants 3-tuple `[meta, bai, bam]`. Resolved with `SAMTOOLS_INDEX.out.index.join(bam_ch)` adapter at each of the 3 call sites. Cosmetic command diff: nf-core adds `-@ ${task.cpus}`. |
 | 6 | `delly/call` | pending | — | Standalone; DELLY constraint in `abc_cluster.config` is by alias so stays. |
 | 7 | `lofreq/call` | pending | — | nf-core: `lofreq/callparallel`. ext.args carries the per-call flags (NTM has `-r region`). |
 | 8 | `lofreq/filter` | pending | — | Direct match. |
-| 9 | `lofreq/indelqual` | pending | — | Direct match (we already cleared bogus `-m 60`). |
 | 10 | `gatk/combine_gvcfs` | pending | — | `--variant ${input_list}` shape matches. |
 | 11 | `gatk/genotype_gvcfs` | pending | — | Direct match. |
 | 12 | `gatk/variants_to_table` | pending | — | Direct match. |
