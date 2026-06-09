@@ -29,7 +29,7 @@ include { GATK_APPLY_BQSR          } from '../modules/local/gatk/apply_bqsr'
 include { GATK_HAPLOTYPE_CALLER    } from '../modules/local/gatk/haplotype_caller'
 include { GATK_COLLECT_WGS_METRICS } from '../modules/local/gatk/collect_wgs_metrics'
 include { GATK_FLAG_STAT           } from '../modules/local/gatk/flag_stat'
-include { LOFREQ_INDELQUAL         } from '../modules/local/lofreq/indelqual'
+include { LOFREQ_INDELQUAL         } from '../modules/nf-core/lofreq/indelqual/main'
 include { LOFREQ_CALL              } from '../modules/local/lofreq/call'
 include { LOFREQ_CALL_NTM          } from '../modules/local/lofreq/call_ntm'
 include { LOFREQ_FILTER            } from '../modules/local/lofreq/filter'
@@ -245,9 +245,12 @@ workflow MAGMA {
             [params.ref_fasta_fai]
         )
 
-        // LoFreq minor-variant calling
-        LOFREQ_INDELQUAL(recalibrated_bam_ch, params.ref_fasta)
-        SAMTOOLS_INDEX_LOFREQ(LOFREQ_INDELQUAL.out)
+        // LoFreq minor-variant calling.
+        // nf-core LOFREQ_INDELQUAL takes the reference as a value tuple
+        // (tuple val(meta2), path(fasta)); wrap params.ref_fasta accordingly.
+        def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta) ])
+        LOFREQ_INDELQUAL(recalibrated_bam_ch, lofreq_indelqual_ref_ch)
+        SAMTOOLS_INDEX_LOFREQ(LOFREQ_INDELQUAL.out.bam)
         LOFREQ_CALL(SAMTOOLS_INDEX_LOFREQ.out, params.ref_fasta, [params.ref_fasta_fai])
         LOFREQ_FILTER(LOFREQ_CALL.out, params.ref_fasta)
 
