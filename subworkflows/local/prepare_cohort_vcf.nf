@@ -2,7 +2,7 @@ include { GATK_COMBINE_GVCFS              } from '../../modules/local/gatk/combi
 include { GATK_GENOTYPE_GVCFS             } from '../../modules/local/gatk/genotype_gvcfs'
 include { SNPEFF                          } from '../../modules/local/snpeff/snpeff'
 include { BGZIP                           } from '../../modules/local/bgzip/bgzip'
-include { GATK_INDEX_FEATURE_FILE as GATK_INDEX_FEATURE_FILE_COHORT } from '../../modules/local/gatk/index_feature_file'
+include { GATK4_INDEXFEATUREFILE as GATK_INDEX_FEATURE_FILE_COHORT } from '../../modules/nf-core/gatk4/indexfeaturefile/main'
 
 
 workflow PREPARE_COHORT_VCF {
@@ -51,5 +51,8 @@ workflow PREPARE_COHORT_VCF {
     GATK_INDEX_FEATURE_FILE_COHORT(BGZIP.out)
 
     emit:
-    cohort_vcf_and_index_ch = GATK_INDEX_FEATURE_FILE_COHORT.out.sample_vcf_tuple // [ meta, tbi, vcf ]
+    // nf-core gatk4/indexfeaturefile emits only [meta, tbi] (emit: index).
+    // The downstream PREPARE_COHORT_VCF emit shape — [meta, tbi, vcf] —
+    // is rebuilt by joining the index output with BGZIP.out on meta.
+    cohort_vcf_and_index_ch = GATK_INDEX_FEATURE_FILE_COHORT.out.index.join(BGZIP.out)
 }

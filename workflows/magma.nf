@@ -36,7 +36,7 @@ include { LOFREQ_FILTER            } from '../modules/nf-core/lofreq/filter/main
 include { UTILS_SAMPLE_STATS       } from '../modules/local/utils/sample_stats'
 include { UTILS_COHORT_STATS       } from '../modules/local/utils/cohort_stats'
 include { UTILS_REFORMAT_LOFREQ    } from '../modules/local/utils/reformat_lofreq'
-include { GATK_INDEX_FEATURE_FILE as GATK_INDEX_FEATURE_FILE_LOFREQ } from '../modules/local/gatk/index_feature_file'
+include { GATK4_INDEXFEATUREFILE as GATK_INDEX_FEATURE_FILE_LOFREQ } from '../modules/nf-core/gatk4/indexfeaturefile/main'
 include { BGZIP as BGZIP_LOFREQ    } from '../modules/local/bgzip/bgzip'
 include { UTILS_MERGE_COHORT_STATS } from '../modules/local/utils/merge_cohort_stats'
 
@@ -270,6 +270,13 @@ workflow MAGMA {
         UTILS_REFORMAT_LOFREQ(LOFREQ_CALL.out)
         BGZIP_LOFREQ(UTILS_REFORMAT_LOFREQ.out)
         GATK_INDEX_FEATURE_FILE_LOFREQ(BGZIP_LOFREQ.out)
+        // nf-core gatk4/indexfeaturefile emits [meta, tbi] (emit: index).
+        // Downstream wants the local module's `vcf_tuple` emit shape, which
+        // dropped meta and was [tbi, vcf]. Rebuild it by joining the index
+        // emit with BGZIP_LOFREQ.out (the same vcf channel that fed the indexer).
+        def lofreq_vcf_tuple_pairs_ch = GATK_INDEX_FEATURE_FILE_LOFREQ.out.index
+            .join(BGZIP_LOFREQ.out)
+            .map { _meta, tbi, vcf -> [ tbi, vcf ] }
 
         // Per-sample QC stats — SAMTOOLS_STATS uses the standard nf-core module.
         // nf-core's signature is (meta, input, input_index) + (meta2, fasta, fai),
@@ -293,7 +300,7 @@ workflow MAGMA {
         // MINOR VARIANTS ANALYSIS (LoFreq cohort merge + TBprofiler)
         // =====================================================================
 
-        lofreq_vcf_tuple_ch = GATK_INDEX_FEATURE_FILE_LOFREQ.out.vcf_tuple.collect(sort: true)
+        lofreq_vcf_tuple_ch = lofreq_vcf_tuple_pairs_ch.collect(sort: true)
 
         vcfs_file = lofreq_vcf_tuple_ch
             .flatten()
