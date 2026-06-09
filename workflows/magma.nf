@@ -22,7 +22,7 @@ include { BWA_MEM                  } from '../modules/local/bwa/mem'
 include { SAMTOOLS_MERGE           } from '../modules/local/samtools/merge'
 include { SAMTOOLS_INDEX           } from '../modules/local/samtools/index'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/local/samtools/index'
-include { SAMTOOLS_STATS           } from '../modules/local/samtools/stats'
+include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/main'
 include { GATK_MARK_DUPLICATES     } from '../modules/local/gatk/mark_duplicates'
 include { GATK_BASE_RECALIBRATOR   } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR          } from '../modules/local/gatk/apply_bqsr'
@@ -256,12 +256,17 @@ workflow MAGMA {
         BGZIP_LOFREQ(UTILS_REFORMAT_LOFREQ.out)
         GATK_INDEX_FEATURE_FILE_LOFREQ(BGZIP_LOFREQ.out)
 
-        // Per-sample QC stats
-        SAMTOOLS_STATS(recalibrated_bam_ch, params.ref_fasta)
+        // Per-sample QC stats — SAMTOOLS_STATS uses the standard nf-core module.
+        // nf-core's signature is (meta, input, input_index) + (meta2, fasta, fai),
+        // so we pad the bam-only channel with `[]` for the index (samtools stats
+        // doesn't require one) and pass the reference as a value tuple.
+        def samtools_stats_input_ch = recalibrated_bam_ch.map { meta, bam -> [meta, bam, []] }
+        def samtools_stats_ref_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta), file(params.ref_fasta_fai) ])
+        SAMTOOLS_STATS(samtools_stats_input_ch, samtools_stats_ref_ch)
         GATK_COLLECT_WGS_METRICS(recalibrated_bam_ch, params.ref_fasta)
         GATK_FLAG_STAT(recalibrated_bam_ch, params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict])
 
-        sample_stats_ch = SAMTOOLS_STATS.out
+        sample_stats_ch = SAMTOOLS_STATS.out.stats
             .join(GATK_COLLECT_WGS_METRICS.out)
             .join(GATK_FLAG_STAT.out)
             .join(LOFREQ_CALL_NTM.out)
