@@ -27,7 +27,15 @@ process GATK_VARIANT_RECALIBRATOR {
     def args                   = task.ext.args ?: ''
     def finalResourceFilesArg  = resourceFilesArg ? "--resource:${resourceFilesArg}" : ""
     def annotationSuffix       = task.ext.prefix ? ".${task.ext.prefix}" : ""
+    def annLog                 = "${meta.id}.${analysisMode}${annotationSuffix}.command.log"
+    // Retry-safe: nf-nomad's wrapper runs the script under `bash -C` (noclobber).
+    // A leftover ${annLog} from a prior attempt would make `gatk ... 2>${annLog}`
+    // exit 1 before gatk runs (`cannot overwrite existing file`). Pre-delete the
+    // file so retries are well-behaved. (${annLog} is captured as an output for
+    // UTILS_ELIMINATE_ANNOTATION to read gatk's stderr.)
     """
+    rm -f ${annLog}
+
     gatk VariantRecalibrator --java-options "-Xmx${task.memory.giga}G" \\
         -R ${reference} \\
         -V ${variantsVcf} \\
@@ -39,9 +47,9 @@ process GATK_VARIANT_RECALIBRATOR {
         --rscript-file ${meta.id}.${analysisMode}${annotationSuffix}.R \\
         --output ${meta.id}.${analysisMode}${annotationSuffix}.recal.vcf.gz \\
         --output-model ${meta.id}.${analysisMode}${annotationSuffix}.model \\
-        2>${meta.id}.${analysisMode}${annotationSuffix}.command.log
+        2>${annLog}
 
-    cp ${meta.id}.${analysisMode}${annotationSuffix}.command.log .command.log
+    cp ${annLog} .command.log
     """
 
     stub:
