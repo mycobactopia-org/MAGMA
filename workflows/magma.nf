@@ -20,8 +20,8 @@ include { BWA_MEM                  } from '../modules/local/bwa/mem'
 
 // ── Per-sample calling ─────────────────────────────────────────────────────────
 include { SAMTOOLS_MERGE           } from '../modules/local/samtools/merge'
-include { SAMTOOLS_INDEX           } from '../modules/local/samtools/index'
-include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/local/samtools/index'
+include { SAMTOOLS_INDEX           } from '../modules/nf-core/samtools/index/main'
+include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_LOFREQ } from '../modules/nf-core/samtools/index/main'
 include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/main'
 include { GATK_MARK_DUPLICATES     } from '../modules/local/gatk/mark_duplicates'
 include { GATK_BASE_RECALIBRATOR   } from '../modules/local/gatk/base_recalibrator'
@@ -51,7 +51,7 @@ include { UTILS_CAT_SPOTYPING      } from '../modules/local/utils/cat_spotyping'
 // ── Structural variants (DELLY) ────────────────────────────────────────────────
 include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/mem'
 include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/local/samtools/merge'
-include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/local/samtools/index'
+include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/samtools/index/main'
 include { GATK_MARK_DUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/local/gatk/mark_duplicates'
 include { GATK_BASE_RECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/local/gatk/base_recalibrator'
 include { GATK_APPLY_BQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/local/gatk/apply_bqsr'
@@ -231,16 +231,23 @@ workflow MAGMA {
 
         SAMTOOLS_INDEX(recalibrated_bam_ch)
 
+        // Rebuild the [meta, bai, bam] tuple that downstream local modules
+        // (GATK_HAPLOTYPE_CALLER, LOFREQ_CALL_NTM, etc.) expect — the local
+        // SAMTOOLS_INDEX emitted that 3-tuple directly, but the standard nf-core
+        // module emits only [meta, bai] (emit: index). We join it back with
+        // recalibrated_bam_ch on meta to recover the original shape.
+        def recalibrated_indexed_bam_ch = SAMTOOLS_INDEX.out.index.join(recalibrated_bam_ch)
+
         // HaplotypeCaller (major variants / GVCF)
         GATK_HAPLOTYPE_CALLER(
-            SAMTOOLS_INDEX.out,
+            recalibrated_indexed_bam_ch,
             params.ref_fasta,
             [params.ref_fasta_fai, params.ref_fasta_dict]
         )
 
         // NTM contamination estimate via LoFreq call at 16S locus
         LOFREQ_CALL_NTM(
-            SAMTOOLS_INDEX.out,
+            recalibrated_indexed_bam_ch,
             params.ref_fasta,
             [params.ref_fasta_fai]
         )
@@ -251,7 +258,9 @@ workflow MAGMA {
         def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta) ])
         LOFREQ_INDELQUAL(recalibrated_bam_ch, lofreq_indelqual_ref_ch)
         SAMTOOLS_INDEX_LOFREQ(LOFREQ_INDELQUAL.out.bam)
-        LOFREQ_CALL(SAMTOOLS_INDEX_LOFREQ.out, params.ref_fasta, [params.ref_fasta_fai])
+        // Same [meta, bai, bam] rebuild as above — LOFREQ_CALL expects the 3-tuple.
+        def lofreq_indexed_bam_ch = SAMTOOLS_INDEX_LOFREQ.out.index.join(LOFREQ_INDELQUAL.out.bam)
+        LOFREQ_CALL(lofreq_indexed_bam_ch, params.ref_fasta, [params.ref_fasta_fai])
         LOFREQ_FILTER(LOFREQ_CALL.out, params.ref_fasta)
 
         // Reformat LoFreq VCFs for downstream merging
@@ -381,7 +390,9 @@ workflow MAGMA {
         }
 
         SAMTOOLS_INDEX_DELLY(recal_delly_ch)
-        DELLY_CALL(SAMTOOLS_INDEX_DELLY.out, params.ref_fasta)
+        // Same [meta, bai, bam] rebuild as elsewhere — DELLY_CALL expects the 3-tuple.
+        def delly_indexed_bam_ch = SAMTOOLS_INDEX_DELLY.out.index.join(recal_delly_ch)
+        DELLY_CALL(delly_indexed_bam_ch, params.ref_fasta)
         BCFTOOLS_VIEW_DELLY(DELLY_CALL.out)
 
         delly_vcfs_ch = BCFTOOLS_VIEW_DELLY.out
