@@ -1,5 +1,5 @@
 include { GATK_COMBINE_GVCFS              } from '../../modules/local/gatk/combine_gvcfs'
-include { GATK_GENOTYPE_GVCFS             } from '../../modules/local/gatk/genotype_gvcfs'
+include { GATK4_GENOTYPEGVCFS as GATK_GENOTYPE_GVCFS } from '../../modules/nf-core/gatk4/genotypegvcfs/main'
 include { SNPEFF                          } from '../../modules/local/snpeff/snpeff'
 include { BGZIP                           } from '../../modules/local/bgzip/bgzip'
 include { GATK4_INDEXFEATUREFILE as GATK_INDEX_FEATURE_FILE_COHORT } from '../../modules/nf-core/gatk4/indexfeaturefile/main'
@@ -42,9 +42,20 @@ workflow PREPARE_COHORT_VCF {
     combined_ch = GATK_COMBINE_GVCFS.out
         .map { joint_name, tbi, vcf -> [ [id: joint_name], tbi, vcf ] }
 
-    GATK_GENOTYPE_GVCFS(combined_ch, params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict])
+    // nf-core GenotypeGVCFs input: [meta, vcf, gvcf_index, intervals, intervals_index]
+    // Reorder combined_ch [meta, tbi, vcf] → [meta, vcf, tbi, [], []] and supply
+    // empty value tuples for the unused dbsnp / dbsnp_tbi inputs.
+    def genotype_input_ch = combined_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, [], [] ] }
+    GATK_GENOTYPE_GVCFS(
+        genotype_input_ch,
+        Channel.value([ [id: 'ref'],  file(params.ref_fasta)      ]),
+        Channel.value([ [id: 'ref'],  file(params.ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'],  file(params.ref_fasta_dict) ]),
+        Channel.value([ [id: 'none'], [] ]),
+        Channel.value([ [id: 'none'], [] ])
+    )
 
-    SNPEFF(GATK_GENOTYPE_GVCFS.out, params.ref_fasta)
+    SNPEFF(GATK_GENOTYPE_GVCFS.out.vcf, params.ref_fasta)
 
     BGZIP(SNPEFF.out)
 
