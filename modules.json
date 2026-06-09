@@ -10,7 +10,17 @@
                         "git_sha": "a29f18660f5e3748d44d6f716241e70c942c065d",
                         "installed_by": ["modules"]
                     },
+                    "delly/call": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "installed_by": ["modules"]
+                    },
                     "fastqc": {
+                        "branch": "master",
+                        "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
+                        "installed_by": ["modules"]
+                    },
+                    "lofreq/filter": {
                         "branch": "master",
                         "git_sha": "6d46786420b4d7bc88eba026eb389c0c5535d120",
                         "installed_by": ["modules"]

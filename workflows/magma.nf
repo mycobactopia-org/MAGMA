@@ -32,7 +32,7 @@ include { GATK_FLAG_STAT           } from '../modules/local/gatk/flag_stat'
 include { LOFREQ_INDELQUAL         } from '../modules/nf-core/lofreq/indelqual/main'
 include { LOFREQ_CALL              } from '../modules/local/lofreq/call'
 include { LOFREQ_CALL_NTM          } from '../modules/local/lofreq/call_ntm'
-include { LOFREQ_FILTER            } from '../modules/local/lofreq/filter'
+include { LOFREQ_FILTER            } from '../modules/nf-core/lofreq/filter/main'
 include { UTILS_SAMPLE_STATS       } from '../modules/local/utils/sample_stats'
 include { UTILS_COHORT_STATS       } from '../modules/local/utils/cohort_stats'
 include { UTILS_REFORMAT_LOFREQ    } from '../modules/local/utils/reformat_lofreq'
@@ -261,7 +261,10 @@ workflow MAGMA {
         // Same [meta, bai, bam] rebuild as above — LOFREQ_CALL expects the 3-tuple.
         def lofreq_indexed_bam_ch = SAMTOOLS_INDEX_LOFREQ.out.index.join(LOFREQ_INDELQUAL.out.bam)
         LOFREQ_CALL(lofreq_indexed_bam_ch, params.ref_fasta, [params.ref_fasta_fai])
-        LOFREQ_FILTER(LOFREQ_CALL.out, params.ref_fasta)
+        // nf-core LOFREQ_FILTER takes only (tuple val(meta), path(vcf)) — the
+        // reference fasta isn't needed by `lofreq filter`. Drop the params.ref_fasta
+        // arg that the local module accepted but never used.
+        LOFREQ_FILTER(LOFREQ_CALL.out)
 
         // Reformat LoFreq VCFs for downstream merging
         UTILS_REFORMAT_LOFREQ(LOFREQ_CALL.out)
