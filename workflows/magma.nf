@@ -79,7 +79,7 @@ include { CLUSTER_ANALYSIS as CLUSTER_ANALYSIS_INCCOMPLEX    } from '../subworkf
 include { CLUSTER_ANALYSIS as CLUSTER_ANALYSIS_EXCOMPLEX     } from '../subworkflows/local/cluster_analysis'
 
 // ── Final merge + reports ──────────────────────────────────────────────────────
-include { GATK_MERGE_VCFS as GATK_MERGE_VCFS_INC      } from '../modules/local/gatk/merge_vcfs'
+include { GATK4_MERGEVCFS as GATK_MERGE_VCFS_INC      } from '../modules/nf-core/gatk4/mergevcfs/main'
 include { UTILS_SUMMARIZE_RESISTANCE_RESULTS           } from '../modules/local/utils/summarize_resistance_results'
 include { UTILS_SUMMARIZE_RESISTANCE_RESULTS_MIXED_INFECTION } from '../modules/local/utils/summarize_resistance_results_mixed_infection'
 
@@ -478,12 +478,23 @@ workflow MAGMA {
             SNP_ANALYSIS(PREPARE_COHORT_VCF.out.cohort_vcf_and_index_ch)
             INDEL_ANALYSIS(PREPARE_COHORT_VCF.out.cohort_vcf_and_index_ch)
 
-            merge_inc_vcf_ch = SNP_ANALYSIS.out.snp_inc_vcf_ch
+            // Build the SNP+INDEL VCF channel for MergeVcfs. The join produces
+            // [meta, snp_tbi, snp_vcf, indel_tbi, indel_vcf]; nf-core wants
+            // [meta, [vcfs...]] (a list of VCFs to merge).
+            def merge_inc_vcf_ch = SNP_ANALYSIS.out.snp_inc_vcf_ch
                 .join(INDEL_ANALYSIS.out.indel_vcf_ch)
+                .map { meta, _snp_tbi, snp_vcf, _indel_tbi, indel_vcf -> [ meta, [ snp_vcf, indel_vcf ] ] }
 
-            GATK_MERGE_VCFS_INC(merge_inc_vcf_ch)
+            // nf-core gatk4/mergevcfs also takes an (optional) dict value tuple
+            // for --SEQUENCE_DICTIONARY; pass an empty tuple — MAGMA's merge
+            // doesn't use a dict (torch-magma's command never had one).
+            GATK_MERGE_VCFS_INC(merge_inc_vcf_ch, Channel.value([ [id: 'none'], [] ]))
 
-            MAJOR_VARIANT_ANALYSIS(GATK_MERGE_VCFS_INC.out, lofreq_vcf_tuple_ch)
+            // Rebuild the downstream [meta, tbi, vcf] tuple that MAJOR_VARIANT_ANALYSIS
+            // expects from the two separate nf-core emits (vcf / tbi).
+            def merge_inc_vcf_out_ch = GATK_MERGE_VCFS_INC.out.tbi.join(GATK_MERGE_VCFS_INC.out.vcf)
+
+            MAJOR_VARIANT_ANALYSIS(merge_inc_vcf_out_ch, lofreq_vcf_tuple_ch)
 
             // ExComplex phylogeny (excludes DR loci + complex/repetitive regions)
             excomplex_exclude_interval_ref_ch = Channel.of(
