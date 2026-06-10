@@ -26,7 +26,7 @@ include { SAMTOOLS_STATS           } from '../modules/nf-core/samtools/stats/mai
 include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES     } from '../modules/nf-core/gatk4/markduplicates/main'
 include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR   } from '../modules/nf-core/gatk4/baserecalibrator/main'
 include { GATK4_APPLYBQSR as GATK_APPLY_BQSR          } from '../modules/nf-core/gatk4/applybqsr/main'
-include { GATK_HAPLOTYPE_CALLER    } from '../modules/local/gatk/haplotype_caller'
+include { GATK4_HAPLOTYPECALLER as GATK_HAPLOTYPE_CALLER    } from '../modules/nf-core/gatk4/haplotypecaller/main'
 include { GATK_COLLECT_WGS_METRICS } from '../modules/local/gatk/collect_wgs_metrics'
 include { GATK_FLAG_STAT           } from '../modules/local/gatk/flag_stat'
 include { LOFREQ_INDELQUAL         } from '../modules/nf-core/lofreq/indelqual/main'
@@ -257,11 +257,18 @@ workflow MAGMA {
         // recalibrated_bam_ch on meta to recover the original shape.
         def recalibrated_indexed_bam_ch = SAMTOOLS_INDEX.out.index.join(recalibrated_bam_ch)
 
-        // HaplotypeCaller (major variants / GVCF)
+        // HaplotypeCaller (major variants / GVCF).
+        // nf-core HC input: [meta, bam, bai, intervals, dragstr_model]
+        // + 5 ref value tuples (fasta/fai/dict/dbsnp/dbsnp_tbi — last 2 empty).
+        // Reorder our [meta, bai, bam] → [meta, bam, bai, [], []].
+        def haplotype_caller_input_ch = recalibrated_indexed_bam_ch.map { meta, bai, bam -> [ meta, bam, bai, [], [] ] }
         GATK_HAPLOTYPE_CALLER(
-            recalibrated_indexed_bam_ch,
-            params.ref_fasta,
-            [params.ref_fasta_fai, params.ref_fasta_dict]
+            haplotype_caller_input_ch,
+            Channel.value([ [id: 'ref'],   file(params.ref_fasta)      ]),
+            Channel.value([ [id: 'ref'],   file(params.ref_fasta_fai)  ]),
+            Channel.value([ [id: 'ref'],   file(params.ref_fasta_dict) ]),
+            Channel.value([ [id: 'none'],  [] ]),
+            Channel.value([ [id: 'none'],  [] ])
         )
 
         // NTM contamination estimate via LoFreq call at 16S locus
@@ -497,7 +504,11 @@ workflow MAGMA {
             // SNP_ANALYSIS, INDEL_ANALYSIS, MAJOR_VARIANT_ANALYSIS,
             // PHYLOGENY_*, CLUSTER_*) never fired, and MULTIQC failed at
             // preprocess_multiqc_input.py for missing joint.ExDR.ExComplex.snp_dists.tsv.
-            collated_gvcfs_ch = GATK_HAPLOTYPE_CALLER.out.gvcf_ch
+            // After the nf-core migration GATK_HAPLOTYPE_CALLER emits .vcf and
+            // .tbi as separate channels; rebuild the [meta, tbi, vcf] 3-tuple
+            // the existing .flatten/.collate(3) pipeline expects.
+            collated_gvcfs_ch = GATK_HAPLOTYPE_CALLER.out.tbi
+                .join(GATK_HAPLOTYPE_CALLER.out.vcf)
                 .collect()
                 .flatten()
                 .collate(3)
