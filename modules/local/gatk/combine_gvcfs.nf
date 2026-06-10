@@ -12,7 +12,7 @@ process GATK_COMBINE_GVCFS {
         path("*")
 
     output:
-        tuple val(joint_name), path("*.combined.vcf.gz.tbi"), path("*.combined.vcf.gz")
+        tuple val(joint_name), path("*.combined.vcf.gz.tbi"), path("*.combined.vcf.gz"), emit: gvcf
 
     when:
     task.ext.when == null || task.ext.when

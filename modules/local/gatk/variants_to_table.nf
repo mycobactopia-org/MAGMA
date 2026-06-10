@@ -7,7 +7,7 @@ process GATK_VARIANTS_TO_TABLE {
         tuple val(meta), path(vcfIndex), path(vcf)
 
     output:
-        tuple val(meta), path("*.fa")
+        tuple val(meta), path("*.fa"), emit: table
 
     when:
     task.ext.when == null || task.ext.when

@@ -10,7 +10,7 @@ process GATK_SELECT_VARIANTS_EXCLUSION {
         path("*")
 
     output:
-        tuple val(meta), path("*.filtered_${analysisMode}_exc-rRNA.vcf.gz.tbi"), path("*.filtered_${analysisMode}_exc-rRNA.vcf.gz")
+        tuple val(meta), path("*.filtered_${analysisMode}_exc-rRNA.vcf.gz.tbi"), path("*.filtered_${analysisMode}_exc-rRNA.vcf.gz"), emit: vcf
 
     when:
     task.ext.when == null || task.ext.when
