@@ -1,5 +1,6 @@
 include { GATK_SELECT_VARIANTS as GATK_SELECT_VARIANTS_PHYLOGENY } from '../../modules/local/gatk/select_variants'
-include { GATK_VARIANTS_TO_TABLE                                  } from '../../modules/local/gatk/variants_to_table'
+include { GATK4_VARIANTSTOTABLE as GATK_VARIANTS_TO_TABLE         } from '../../modules/nf-core/gatk4/variantstotable/main'
+include { UTILS_VARIANT_TABLE_TO_FASTA                            } from '../../modules/local/utils/variant_table_to_fasta'
 include { SNPSITES                                                } from '../../modules/local/snpsites/snpsites'
 include { SNPDISTS                                                } from '../../modules/nf-core/snpdists/main'
 include { IQTREE                                                  } from '../../modules/nf-core/iqtree/main'
@@ -40,9 +41,30 @@ workflow PHYLOGENY_ANALYSIS {
         [params.ref_fasta_fai, params.ref_fasta_dict]
     )
 
-    GATK_VARIANTS_TO_TABLE(prefix_ch, GATK_SELECT_VARIANTS_PHYLOGENY.out.variantsVcfTuple)
+    // nf-core gatk4/variantstotable input: [meta, vcf, tbi, args_file, include_intervals, exclude_intervals]
+    // + 3 ref value tuples. Same prefix-into-meta adapter so ext.prefix can
+    // recompute the joint.<prefix>.table filename.
+    def vtot_input_ch = prefix_ch
+        .combine(GATK_SELECT_VARIANTS_PHYLOGENY.out.variantsVcfTuple)
+        .map { phylo_prefix, meta, tbi, vcf -> [ meta + [phylo_prefix: phylo_prefix], vcf, tbi, [], [], [] ] }
+    GATK_VARIANTS_TO_TABLE(
+        vtot_input_ch,
+        Channel.value([ [id: 'ref'], file(params.ref_fasta)      ]),
+        Channel.value([ [id: 'ref'], file(params.ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'], file(params.ref_fasta_dict) ])
+    )
 
-    SNPSITES(prefix_ch, GATK_VARIANTS_TO_TABLE.out)
+    // The local module bundled `variant_table_to_fasta.py` after gatk's table.
+    // Split out: now a dedicated UTILS_VARIANT_TABLE_TO_FASTA local module.
+    UTILS_VARIANT_TABLE_TO_FASTA(GATK_VARIANTS_TO_TABLE.out.table)
+
+    // SNPSITES expects (prefix_ch, [meta, fasta]). Strip phylo_prefix from
+    // UTILS_VARIANT_TABLE_TO_FASTA.out.fasta meta so it joins compatibly.
+    def vtt_fasta_clean_ch = UTILS_VARIANT_TABLE_TO_FASTA.out.fasta.map { meta, fasta ->
+        [ meta.findAll { k, _v -> k != 'phylo_prefix' }, fasta ]
+    }
+
+    SNPSITES(prefix_ch, vtt_fasta_clean_ch)
 
     // SNPDISTS uses the standard nf-core module (single meta-channel input).
     // The phylogeny prefix that the other local modules in this subworkflow take
