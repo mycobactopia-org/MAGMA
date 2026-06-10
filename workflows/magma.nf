@@ -56,7 +56,7 @@ include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../module
 include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/nf-core/gatk4/baserecalibrator/main'
 include { GATK4_APPLYBQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/nf-core/gatk4/applybqsr/main'
 include { DELLY_CALL               } from '../modules/nf-core/delly/call/main'
-include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/local/bcftools/view'
+include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/nf-core/bcftools/view/main'
 include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY } from '../modules/local/bcftools/merge'
 include { BGZIP as BGZIP_MINOR_VARIANTS          } from '../modules/local/bgzip/bgzip'
 include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_LOFREQ } from '../modules/local/bcftools/merge'
@@ -438,16 +438,26 @@ workflow MAGMA {
         def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta)     ])
         def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta_fai) ])
         DELLY_CALL(delly_call_input_ch, delly_call_fasta_ch, delly_call_fai_ch, 'bcf')
-        BCFTOOLS_VIEW_DELLY(DELLY_CALL.out.bcf)
+        // nf-core BCFTOOLS_VIEW takes [meta, vcf, index] (the index can be passed
+        // empty []); we have DELLY_CALL.out.bcf=[meta, bcf] and .csi=[meta, csi],
+        // so join them. Optional regions/targets/samples are all empty.
+        def bcftools_view_delly_input_ch = DELLY_CALL.out.bcf.join(DELLY_CALL.out.csi)
+        BCFTOOLS_VIEW_DELLY(bcftools_view_delly_input_ch, [], [], [])
 
-        delly_vcfs_ch = BCFTOOLS_VIEW_DELLY.out
+        // The local module emitted a 3-tuple [meta, bcf.gz, csi] which the
+        // downstream pipeline flattened and filtered. The nf-core module emits
+        // .vcf (the filtered file) and .index (the auto-generated csi from
+        // --write-index=csi) separately; join+flatten the same way.
+        def bcftools_view_delly_out_ch = BCFTOOLS_VIEW_DELLY.out.vcf.join(BCFTOOLS_VIEW_DELLY.out.index)
+
+        delly_vcfs_ch = bcftools_view_delly_out_ch
             .collect()
             .flatten()
             .filter { it instanceof java.nio.file.Path }
             .unique()
             .collect(sort: true)
 
-        delly_vcfs_file = BCFTOOLS_VIEW_DELLY.out
+        delly_vcfs_file = bcftools_view_delly_out_ch
             .collect()
             .flatten()
             .filter { it instanceof java.nio.file.Path && it.getExtension() == "gz" }
