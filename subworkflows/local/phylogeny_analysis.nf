@@ -2,7 +2,7 @@ include { GATK_SELECT_VARIANTS as GATK_SELECT_VARIANTS_PHYLOGENY } from '../../m
 include { GATK_VARIANTS_TO_TABLE                                  } from '../../modules/local/gatk/variants_to_table'
 include { SNPSITES                                                } from '../../modules/local/snpsites/snpsites'
 include { SNPDISTS                                                } from '../../modules/nf-core/snpdists/main'
-include { IQTREE                                                  } from '../../modules/local/iqtree/iqtree'
+include { IQTREE                                                  } from '../../modules/nf-core/iqtree/main'
 
 
 workflow PHYLOGENY_ANALYSIS {
@@ -55,10 +55,22 @@ workflow PHYLOGENY_ANALYSIS {
 
     SNPDISTS(snpdists_input_ch)
 
-    IQTREE(prefix_ch, SNPSITES.out)
+    // IQTREE: same prefix-into-meta adapter as SNPDISTS. nf-core IQTREE takes
+    // tuple val(meta), path(alignment), path(tree) — 3-element with empty tree;
+    // plus 13 optional path args for advanced features (all []).
+    iqtree_input_ch = prefix_ch
+        .combine(SNPSITES.out)
+        .map { phylo_prefix, meta, fasta -> [ meta + [phylo_prefix: phylo_prefix], fasta, [] ] }
+    IQTREE(iqtree_input_ch, [], [], [], [], [], [], [], [], [], [], [], [])
+
+    // Strip phylo_prefix from IQTREE.out.phylogeny meta so it joins cleanly with
+    // SNPSITES.out (which doesn't carry phylo_prefix).
+    def iqtree_phylogeny_clean_ch = IQTREE.out.phylogeny.map { meta, treefile ->
+        [ meta.findAll { k, _v -> k != 'phylo_prefix' }, treefile ]
+    }
 
     emit:
-    snpsites_tree_tuple = SNPSITES.out.join(IQTREE.out.tree_tuple) // [ meta, fasta, treefile ]
+    snpsites_tree_tuple = SNPSITES.out.join(iqtree_phylogeny_clean_ch) // [ meta, fasta, treefile ]
     // Match the prior emit shape (bare path channel) by dropping meta — the only
     // downstream consumer (magma.nf MULTIQC mix) doesn't need it.
     snp_dists_ch        = SNPDISTS.out.tsv.map { _meta, tsv -> tsv }
