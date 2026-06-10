@@ -1,4 +1,4 @@
-include { GATK_SELECT_VARIANTS as GATK_SELECT_VARIANTS_SNP             } from '../../modules/local/gatk/select_variants'
+include { GATK4_SELECTVARIANTS as GATK_SELECT_VARIANTS_SNP             } from '../../modules/nf-core/gatk4/selectvariants/main'
 include { GATK_VARIANT_RECALIBRATOR as GATK_VARIANT_RECALIBRATOR_SNP   } from '../../modules/local/gatk/variant_recalibrator'
 include { GATK4_APPLYVQSR as GATK_APPLY_VQSR_SNP                       } from '../../modules/nf-core/gatk4/applyvqsr/main'
 include { GATK_SELECT_VARIANTS_EXCLUSION as GATK_SELECT_VARIANTS_EXCLUSION_SNP } from '../../modules/local/gatk/select_variants_exclusion'
@@ -12,17 +12,12 @@ workflow SNP_ANALYSIS {
 
     main:
 
-    // Select SNP variants from the joint VCF
-    GATK_SELECT_VARIANTS_SNP(
-        'SNP',
-        'raw',
-        cohort_vcf_and_index_ch,
-        '',
-        [],
-        [],
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
-    )
+    // Select SNP variants from the joint VCF.
+    // Local input shape (8 positional params) collapses to nf-core's single
+    // tuple input. variantType, prefix, and the --select-type-to-include flag
+    // all move into ext.args / ext.prefix in conf/modules.config.
+    def select_snp_input_ch = cohort_vcf_and_index_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, [] ] }
+    GATK_SELECT_VARIANTS_SNP(select_snp_input_ch)
 
     // Build resource file channels for VQSR
     arg_files_ch = Channel.of(
@@ -50,12 +45,17 @@ workflow SNP_ANALYSIS {
         .collect()
         .ifEmpty([])
 
+    // Rebuild the [meta, tbi, vcf] tuple that downstream local subworkflows
+    // (OPTIMIZE_VARIANT_RECALIBRATION, the still-local GATK_VARIANT_RECALIBRATOR_SNP)
+    // expect. nf-core SelectVariants emits .vcf and .tbi as separate channels.
+    def select_snp_vcftuple_ch = GATK_SELECT_VARIANTS_SNP.out.tbi.join(GATK_SELECT_VARIANTS_SNP.out.vcf)
+
     if (!params.skip_variant_recalibration) {
 
         // Optimized VQSR: try 6 annotation combinations and pick the best
         OPTIMIZE_VARIANT_RECALIBRATION(
             'SNP',
-            GATK_SELECT_VARIANTS_SNP.out.variantsVcfTuple,
+            select_snp_vcftuple_ch,
             args_ch,
             resources_files_ch,
             resources_file_indexes_ch
@@ -69,7 +69,7 @@ workflow SNP_ANALYSIS {
         GATK_VARIANT_RECALIBRATOR_SNP(
             'SNP',
             '-an DP -an AS_MQ',
-            GATK_SELECT_VARIANTS_SNP.out.variantsVcfTuple,
+            select_snp_vcftuple_ch,
             args_ch,
             resources_files_ch,
             resources_file_indexes_ch,
@@ -77,7 +77,7 @@ workflow SNP_ANALYSIS {
             [params.ref_fasta_fai, params.ref_fasta_dict]
         )
 
-        vqsr_ch = GATK_SELECT_VARIANTS_SNP.out.variantsVcfTuple
+        vqsr_ch = select_snp_vcftuple_ch
             .join(GATK_VARIANT_RECALIBRATOR_SNP.out.recalVcfTuple)
             .join(GATK_VARIANT_RECALIBRATOR_SNP.out.tranchesFile)
     }
