@@ -25,24 +25,7 @@ include { UTILS_MERGE_COHORT_STATS      } from '../modules/local/utils/merge_coh
 include { QUALITY_CHECK_WF         } from '../subworkflows/local/quality_check_wf'
 
 // ── Structural variants (DELLY) ────────────────────────────────────────────────
-include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/mem'
-include { SAMTOOLS_MERGE as SAMTOOLS_MERGE_DELLY } from '../modules/nf-core/samtools/merge/main'
-include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_DELLY  } from '../modules/nf-core/samtools/index/main'
-include { GATK4_MARKDUPLICATES as GATK_MARK_DUPLICATES_DELLY   } from '../modules/nf-core/gatk4/markduplicates/main'
-include { GATK4_BASERECALIBRATOR as GATK_BASE_RECALIBRATOR_DELLY } from '../modules/nf-core/gatk4/baserecalibrator/main'
-include { GATK4_APPLYBQSR as GATK_APPLY_BQSR_DELLY              } from '../modules/nf-core/gatk4/applybqsr/main'
-include { DELLY_CALL               } from '../modules/nf-core/delly/call/main'
-include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_DELLY   } from '../modules/nf-core/bcftools/view/main'
-include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_DELLY } from '../modules/local/bcftools/merge'
-include { BGZIP as BGZIP_MINOR_VARIANTS          } from '../modules/local/bgzip/bgzip'
-include { BCFTOOLS_MERGE as BCFTOOLS_MERGE_LOFREQ } from '../modules/local/bcftools/merge'
-
-// ── TB drug-resistance & structural variant profiles ──────────────────────────
-include { TBPROFILER_VCF_PROFILE as TBPROFILER_VCF_PROFILE_DELLY  } from '../modules/local/tbprofiler/vcf_profile'
-include { TBPROFILER_COLLATE as TBPROFILER_COLLATE_DELLY           } from '../modules/local/tbprofiler/collate'
-include { TBPROFILER_VCF_PROFILE as TBPROFILER_VCF_PROFILE_LOFREQ } from '../modules/local/tbprofiler/vcf_profile'
-include { TBPROFILER_COLLATE as TBPROFILER_COLLATE_LOFREQ          } from '../modules/local/tbprofiler/collate'
-include { UTILS_MULTIPLE_INFECTION_FILTER } from '../modules/local/utils/multiple_infection_filter'
+include { STRUCTURAL_VARIANTS_ANALYSIS_WF } from '../subworkflows/local/structural_variants_analysis_wf'
 
 // ── Cohort joint-genotyping subworkflows ──────────────────────────────────────
 include { PREPARE_COHORT_VCF     } from '../subworkflows/local/prepare_cohort_vcf'
@@ -158,114 +141,7 @@ workflow MAGMA {
         // STRUCTURAL VARIANTS ANALYSIS (DELLY)
         // =====================================================================
 
-        BWA_MEM_DELLY(
-            approved_fastqs_ch,
-            params.ref_fasta,
-            [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-             params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-             params.ref_fasta_sa]
-        )
-
-        delly_normalize_ch = BWA_MEM_DELLY.out
-            .map { meta, bam ->
-                def splitted = meta.id.split("\\.")
-                def sampleId = splitted[0] + '.' + splitted[1]
-                [ meta + [id: sampleId], bam ]
-            }
-            .groupTuple()
-
-        // Join with approved samples to filter.
-        // Shapes after join:
-        //   all_samples_ch.map { [it[0], it[0]] }                       → [id, id]
-        //   delly_normalize_ch.map { meta, bam -> [meta.id, meta, bam] } → [id, meta, [bams]]
-        //   join (key=id)                                                → [id, id, meta, [bams]]
-        // The previous 3-arg destructure dropped the second id, causing
-        // 'Invalid method invocation `call` with arguments: [id, id, meta, [bam]]'.
-        delly_filtered_ch = all_samples_ch
-            .map { [ it[0], it[0] ] }
-            .join(delly_normalize_ch.map { meta, bam -> [ meta.id, meta, bam ] })
-            .map { _id, _id2, meta, bam -> [ meta, bam ] }
-
-        def samtools_merge_delly_input_ch = delly_filtered_ch.map { meta, bams -> [meta, bams, []] }
-        SAMTOOLS_MERGE_DELLY(samtools_merge_delly_input_ch, Channel.value([ [id: 'none'], [], [], [] ]))
-        GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out.bam, [], [])
-
-        if (!params.skip_base_recalibration) {
-            def base_recal_delly_input_ch = GATK_MARK_DUPLICATES_DELLY.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
-            GATK_BASE_RECALIBRATOR_DELLY(
-                base_recal_delly_input_ch,
-                Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
-            )
-            def apply_bqsr_delly_input_ch = GATK_BASE_RECALIBRATOR_DELLY.out.table
-                .join(GATK_MARK_DUPLICATES_DELLY.out.bam)
-                .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
-            GATK_APPLY_BQSR_DELLY(
-                apply_bqsr_delly_input_ch,
-                file(params.ref_fasta),
-                file(params.ref_fasta_fai),
-                file(params.ref_fasta_dict)
-            )
-            recal_delly_ch = GATK_APPLY_BQSR_DELLY.out.bam
-        } else {
-            recal_delly_ch = GATK_MARK_DUPLICATES_DELLY.out.bam
-        }
-
-        SAMTOOLS_INDEX_DELLY(recal_delly_ch)
-        // Adapt to the nf-core DELLY_CALL signature, which takes a wide tuple
-        //   (meta, input_bam, input_bai, vcf, vcf_index, exclude_bed)
-        // with the last three optional, plus separate fasta + fai value tuples
-        // and a 'bcf'/'vcf' suffix selector. MAGMA does discovery-mode DELLY
-        // calls (no genotyping VCF, no exclude bed) and wants .bcf output.
-        def delly_call_input_ch = SAMTOOLS_INDEX_DELLY.out.index
-            .join(recal_delly_ch)
-            .map { meta, bai, bam -> [ meta, bam, bai, [], [], [] ] }
-        def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta)     ])
-        def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta_fai) ])
-        DELLY_CALL(delly_call_input_ch, delly_call_fasta_ch, delly_call_fai_ch, 'bcf')
-        // nf-core BCFTOOLS_VIEW takes [meta, vcf, index] (the index can be passed
-        // empty []); we have DELLY_CALL.out.bcf=[meta, bcf] and .csi=[meta, csi],
-        // so join them. Optional regions/targets/samples are all empty.
-        def bcftools_view_delly_input_ch = DELLY_CALL.out.bcf.join(DELLY_CALL.out.csi)
-        BCFTOOLS_VIEW_DELLY(bcftools_view_delly_input_ch, [], [], [])
-
-        // The local module emitted a 3-tuple [meta, bcf.gz, csi] which the
-        // downstream pipeline flattened and filtered. The nf-core module emits
-        // .vcf (the filtered file) and .index (the auto-generated csi from
-        // --write-index=csi) separately; join+flatten the same way.
-        def bcftools_view_delly_out_ch = BCFTOOLS_VIEW_DELLY.out.vcf.join(BCFTOOLS_VIEW_DELLY.out.index)
-
-        delly_vcfs_ch = bcftools_view_delly_out_ch
-            .collect()
-            .flatten()
-            .filter { it instanceof java.nio.file.Path }
-            .unique()
-            .collect(sort: true)
-
-        delly_vcfs_file = bcftools_view_delly_out_ch
-            .collect()
-            .flatten()
-            .filter { it instanceof java.nio.file.Path && it.getExtension() == "gz" }
-            .map { it.name }
-            .collectFile(name: "${outdir}/structural_variant_vcfs.txt", newLine: true)
-
-        BCFTOOLS_MERGE_DELLY(
-            params.vcf_name,
-            'delly',
-            delly_vcfs_file,
-            delly_vcfs_ch
-        )
-
-        def delly_resistanceDb = []
-        TBPROFILER_VCF_PROFILE_DELLY(BCFTOOLS_MERGE_DELLY.out, delly_resistanceDb)
-        TBPROFILER_COLLATE_DELLY(
-            params.vcf_name,
-            TBPROFILER_VCF_PROFILE_DELLY.out.collect(),
-            delly_resistanceDb
-        )
+        STRUCTURAL_VARIANTS_ANALYSIS_WF(approved_fastqs_ch, all_samples_ch, outdir)
 
         // =====================================================================
         // MERGE_WF — cohort joint-genotyping + phylogeny
@@ -374,13 +250,13 @@ workflow MAGMA {
                 UTILS_MERGE_COHORT_STATS.out.merged_cohort_stats_ch,
                 MAJOR_VARIANT_ANALYSIS.out.major_variants_results_ch,
                 MINOR_VARIANTS_ANALYSIS_WF.out.minor_variants_results_ch,
-                TBPROFILER_COLLATE_DELLY.out.per_sample_results
+                STRUCTURAL_VARIANTS_ANALYSIS_WF.out.structural_variants_results_ch
             )
 
             UTILS_SUMMARIZE_RESISTANCE_RESULTS_MIXED_INFECTION(
                 UTILS_MERGE_COHORT_STATS.out.merged_cohort_stats_ch,
                 MINOR_VARIANTS_ANALYSIS_WF.out.minor_variants_results_ch,
-                TBPROFILER_COLLATE_DELLY.out.per_sample_results
+                STRUCTURAL_VARIANTS_ANALYSIS_WF.out.structural_variants_results_ch
             )
 
         } // end !skip_merge_analysis
