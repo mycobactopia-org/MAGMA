@@ -3,7 +3,6 @@
     IMPORT MODULES / SUBWORKFLOWS / FUNCTIONS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
-include { FASTQC                  } from '../modules/nf-core/fastqc/main'
 include { MULTIQC                 } from '../modules/local/multiqc/main'
 include { paramsSummaryMap        } from 'plugin/nf-schema'
 include { paramsSummaryMultiqc    } from '../subworkflows/nf-core/utils_nfcore_pipeline'
@@ -12,11 +11,10 @@ include { methodsDescriptionText  } from '../subworkflows/local/utils_nfcore_mag
 
 // ── Validation ────────────────────────────────────────────────────────────────
 include { SAMPLESHEET_VALIDATION   } from '../modules/local/utils/samplesheet_validation'
-include { FASTQ_VALIDATOR          } from '../modules/local/fastqvalidator/main'
-include { UTILS_FASTQ_COHORT_VALIDATION } from '../modules/local/utils/fastq_cohort_validation'
+include { VALIDATE_FASTQS_WF       } from '../subworkflows/local/validate_fastqs_wf'
 
 // ── Mapping ────────────────────────────────────────────────────────────────────
-include { BWA_MEM                  } from '../modules/local/bwa/mem'
+include { MAP_WF                   } from '../subworkflows/local/map_wf'
 
 // ── Per-sample calling ─────────────────────────────────────────────────────────
 include { SAMTOOLS_MERGE           } from '../modules/nf-core/samtools/merge/main'
@@ -41,12 +39,7 @@ include { BGZIP as BGZIP_LOFREQ    } from '../modules/local/bgzip/bgzip'
 include { UTILS_MERGE_COHORT_STATS } from '../modules/local/utils/merge_cohort_stats'
 
 // ── QC (FastQC, NTMprofiler, TBprofiler fastq, SpoTyping) ─────────────────────
-include { NTMPROFILER_PROFILE      } from '../modules/local/ntmprofiler/profile'
-include { NTMPROFILER_COLLATE      } from '../modules/local/ntmprofiler/collate'
-include { TBPROFILER_FASTQ_PROFILE } from '../modules/local/tbprofiler/fastq_profile'
-include { TBPROFILER_COLLATE as TBPROFILER_FASTQ_COLLATE } from '../modules/local/tbprofiler/collate'
-include { SPOTYPING                } from '../modules/local/spotyping/main'
-include { UTILS_CAT_SPOTYPING      } from '../modules/local/utils/cat_spotyping'
+include { QUALITY_CHECK_WF         } from '../subworkflows/local/quality_check_wf'
 
 // ── Structural variants (DELLY) ────────────────────────────────────────────────
 include { BWA_MEM as BWA_MEM_DELLY               } from '../modules/local/bwa/mem'
@@ -113,68 +106,20 @@ workflow MAGMA {
 
     SAMPLESHEET_VALIDATION(file(params.input_samplesheet ?: params.input, checkIfExists: true))
 
-    // Build a per-FASTQ-file channel from the validated JSON
-    fastqs_ch = SAMPLESHEET_VALIDATION.out.validated_samplesheet
-        .splitJson()
-        .map { row ->
-            def meta = [
-                id:             row.magma_sample_name,
-                bam_rg_string:  row.magma_bam_rg_string,
-                paired:         row.R2 ? true : false,
-                single_end:     row.R2 ? false : true
-            ]
-            row.R2 ? [ meta, [row.R1, row.R2] ] : [ meta, [row.R1] ]
-        }
-        .transpose()   // emit one record per fastq file
-
-    // Validate each FASTQ individually
-    FASTQ_VALIDATOR(fastqs_ch, SAMPLESHEET_VALIDATION.out.status)
-
-    // Cohort-level validation (QC cutoffs, contamination check)
-    UTILS_FASTQ_COHORT_VALIDATION(
-        FASTQ_VALIDATOR.out.fastq_report.collect(),
-        SAMPLESHEET_VALIDATION.out.validated_samplesheet
+    VALIDATE_FASTQS_WF(
+        SAMPLESHEET_VALIDATION.out.validated_samplesheet,
+        SAMPLESHEET_VALIDATION.out.status
     )
 
-    // Build approved-samples channel from magma_analysis.json
-    approved_fastqs_ch = UTILS_FASTQ_COHORT_VALIDATION.out.magma_analysis_json
-        .splitJson()
-        .filter { it.value.fastqs_approved }
-        .map { row ->
-            def meta = [
-                id:            row.value.magma_sample_name,
-                bam_rg_string: row.value.magma_bam_rg_string,
-                paired:        row.value.R2 ? true : false,
-                single_end:    row.value.R2 ? false : true
-            ]
-            row.value.R2 ? [ meta, [row.value.R1, row.value.R2] ] : [ meta, [row.value.R1] ]
-        }
+    def approved_fastqs_ch = VALIDATE_FASTQS_WF.out.approved_fastqs_ch
 
     // =========================================================================
     // QUALITY CHECK (FastQC, NTMprofiler, TBprofiler FASTQ, SpoTyping)
     // =========================================================================
 
-    FASTQC(approved_fastqs_ch)
-    ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip.map { _meta, file -> file })
+    QUALITY_CHECK_WF(approved_fastqs_ch)
 
-    if (!params.skip_ntmprofiler) {
-        NTMPROFILER_PROFILE(approved_fastqs_ch)
-        NTMPROFILER_COLLATE(params.vcf_name, NTMPROFILER_PROFILE.out.profile_json.collect())
-    }
-
-    if (!params.skip_tbprofiler_fastq) {
-        TBPROFILER_FASTQ_PROFILE(approved_fastqs_ch)
-        TBPROFILER_FASTQ_COLLATE(
-            params.vcf_name,
-            TBPROFILER_FASTQ_PROFILE.out.json.map { _meta, j -> j }.collect(),
-            []
-        )
-    }
-
-    if (!params.skip_spotyping) {
-        SPOTYPING(approved_fastqs_ch)
-        UTILS_CAT_SPOTYPING(SPOTYPING.out.txt.collect())
-    }
+    ch_multiqc_files = ch_multiqc_files.mix(QUALITY_CHECK_WF.out.reports_fastqc_ch)
 
     // =========================================================================
     // EARLY EXIT: only_validate_fastqs mode
@@ -183,23 +128,17 @@ workflow MAGMA {
     if (!params.only_validate_fastqs) {
 
         // =====================================================================
-        // MAPPING — BWA (main pipeline)
+        // MAPPING — MAP_WF (BWA-MEM)
         // =====================================================================
 
-        BWA_MEM(
-            approved_fastqs_ch,
-            params.ref_fasta,
-            [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-             params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-             params.ref_fasta_sa]
-        )
+        MAP_WF(approved_fastqs_ch)
 
         // =====================================================================
         // CALL_WF — per-sample variant calling
         // =====================================================================
 
         // Group by sample (collapse per-library BAMs into one tuple per sample)
-        normalize_libraries_ch = BWA_MEM.out
+        normalize_libraries_ch = MAP_WF.out.sorted_reads_ch
             .map { meta, bam ->
                 def splitted = meta.id.split("\\.")
                 def sampleId = splitted[0] + '.' + splitted[1]
