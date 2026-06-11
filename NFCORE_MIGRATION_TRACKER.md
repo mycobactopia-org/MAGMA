@@ -119,3 +119,80 @@ return here and:
 4. If green, batch the next 5 trivial migrations (`samtools/index`,
    `samtools/stats`, `delly/call`, `lofreq/filter`, `lofreq/indelqual`,
    `snpsites`) in one sweep — they have no adapter requirements.
+
+## Next iteration: split workflows/magma.nf into logical subworkflows
+
+Currently every process shows up under the single `MAGMA:` group:
+
+    [dd/4f1407] Cached process > MAGMA:SAMPLESHEET_VALIDATION
+    [ab/55ec40] Cached process > MAGMA:BWA_MEM
+    [73/c01ad9] Cached process > MAGMA:GATK_HAPLOTYPE_CALLER
+
+The single 500-line `MAGMA` workflow does everything, so the process tree
+gives no logical grouping and resume-points are coarse.
+
+Split `workflows/magma.nf` into nested subworkflows so the same processes
+display under their logical phase, e.g.:
+
+    MAGMA:VALIDATE_INPUTS:SAMPLESHEET_VALIDATION
+    MAGMA:MAP_AND_DEDUP:BWA_MEM
+    MAGMA:CALL_VARIANTS_PER_SAMPLE:GATK_HAPLOTYPE_CALLER
+
+Proposed subworkflow boundaries (each becomes a new file under
+`subworkflows/local/`):
+
+| Subworkflow | Contains |
+|---|---|
+| `VALIDATE_INPUTS`           | `SAMPLESHEET_VALIDATION`, `FASTQ_VALIDATOR`, `UTILS_FASTQ_COHORT_VALIDATION` |
+| `PER_SAMPLE_QC`             | `FASTQC`, `NTMPROFILER_PROFILE`/`COLLATE`, `TBPROFILER_FASTQ_PROFILE`/`COLLATE`, `SPOTYPING`/`UTILS_CAT_SPOTYPING` |
+| `MAP_AND_DEDUP`             | `BWA_MEM`, `SAMTOOLS_MERGE`, `GATK_MARK_DUPLICATES`, optional `GATK_BASE_RECALIBRATOR`/`GATK_APPLY_BQSR`, `SAMTOOLS_INDEX` |
+| `PER_SAMPLE_QC_STATS`       | `SAMTOOLS_STATS`, `GATK_FLAG_STAT`, `GATK_COLLECT_WGS_METRICS`, `LOFREQ_CALL_NTM`, `UTILS_SAMPLE_STATS`, `UTILS_COHORT_STATS` |
+| `CALL_MAJOR_VARIANTS`       | `GATK_HAPLOTYPE_CALLER` (per-sample GVCFs) |
+| `CALL_MINOR_VARIANTS_LOFREQ`| `LOFREQ_INDELQUAL`, `SAMTOOLS_INDEX_LOFREQ`, `LOFREQ_CALL`, `LOFREQ_FILTER`, `UTILS_REFORMAT_LOFREQ`, `BGZIP_LOFREQ`, `GATK_INDEX_FEATURE_FILE_LOFREQ`, `BCFTOOLS_MERGE_LOFREQ`, `TBPROFILER_VCF_PROFILE_LOFREQ`/`COLLATE` |
+| `STRUCTURAL_VARIANTS_DELLY` | `BWA_MEM_DELLY`, `SAMTOOLS_MERGE_DELLY`, `GATK_MARK_DUPLICATES_DELLY`, optional BQSR_DELLY, `SAMTOOLS_INDEX_DELLY`, `DELLY_CALL`, `BCFTOOLS_VIEW_DELLY`, `BCFTOOLS_MERGE_DELLY`, `TBPROFILER_VCF_PROFILE_DELLY`/`COLLATE` |
+| `COHORT_GENOTYPING`         | `PREPARE_COHORT_VCF` (already a subworkflow), `SNP_ANALYSIS`, `INDEL_ANALYSIS`, `GATK_MERGE_VCFS_INC`, `MAJOR_VARIANT_ANALYSIS` |
+| `PHYLOGENY_AND_CLUSTERING`  | `PHYLOGENY_ANALYSIS_EXCOMPLEX`/`INCCOMPLEX`, `CLUSTER_ANALYSIS_EXCOMPLEX`/`INCCOMPLEX` |
+| `RESISTANCE_SUMMARIES`      | `UTILS_SUMMARIZE_RESISTANCE_RESULTS`, `UTILS_SUMMARIZE_RESISTANCE_RESULTS_MIXED_INFECTION` |
+| `REPORTING`                 | `UTILS_MERGE_COHORT_STATS`, `MULTIQC` |
+
+The main `MAGMA` workflow becomes ~80 lines, just composing the above:
+
+```groovy
+workflow MAGMA {
+    take: ch_samplesheet; multiqc_config; outdir
+    main:
+    VALIDATE_INPUTS(ch_samplesheet)
+    PER_SAMPLE_QC(VALIDATE_INPUTS.out.approved_fastqs_ch)
+    MAP_AND_DEDUP(VALIDATE_INPUTS.out.approved_fastqs_ch)
+    PER_SAMPLE_QC_STATS(MAP_AND_DEDUP.out.recalibrated_bam_ch, …)
+    CALL_MAJOR_VARIANTS(MAP_AND_DEDUP.out.indexed_bam_ch, …)
+    CALL_MINOR_VARIANTS_LOFREQ(MAP_AND_DEDUP.out.recalibrated_bam_ch, …)
+    STRUCTURAL_VARIANTS_DELLY(VALIDATE_INPUTS.out.approved_fastqs_ch, …)
+    COHORT_GENOTYPING(CALL_MAJOR_VARIANTS.out.gvcf_ch,
+                      PER_SAMPLE_QC_STATS.out.approved_samples_ch,
+                      CALL_MINOR_VARIANTS_LOFREQ.out.lofreq_vcf_tuple_ch, …)
+    PHYLOGENY_AND_CLUSTERING(COHORT_GENOTYPING.out.snp_exc_vcf_ch, …)
+    RESISTANCE_SUMMARIES(PER_SAMPLE_QC_STATS.out.merged_cohort_stats_ch,
+                         COHORT_GENOTYPING.out.major_variants_results_ch,
+                         CALL_MINOR_VARIANTS_LOFREQ.out.tbprofiler_collate_lofreq_ch,
+                         STRUCTURAL_VARIANTS_DELLY.out.tbprofiler_collate_delly_ch)
+    REPORTING(VALIDATE_INPUTS.out.fastqc_zips_ch,
+              PER_SAMPLE_QC_STATS.out.merged_cohort_stats_ch,
+              PHYLOGENY_AND_CLUSTERING.out.snp_dists_ch, …)
+}
+```
+
+Benefits beyond cosmetics:
+
+1. **Resume / continuation checkpoints**: each subworkflow becomes a natural
+   re-entry point (`-entry <subworkflow>` once we promote them to top-level
+   workflows for partial runs).
+2. **Test in isolation**: nf-test snapshots per subworkflow; the existing
+   per-process snapshots stay the same.
+3. **Plan-2 reuse**: M. bovis integration can replace `PER_SAMPLE_QC`
+   (different organism-profile flow) without touching the rest.
+4. **Readability**: 11 × ~50-line subworkflow files beats 1 × 500-line workflow.
+
+Scope estimate: ~1 day of refactor + a SciVer-validated run. No process
+commands change; only the workflow file layout, so cache hashes stay
+identical and the existing resumed workdir keeps working.
