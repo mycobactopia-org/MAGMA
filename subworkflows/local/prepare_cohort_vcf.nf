@@ -12,24 +12,22 @@ workflow PREPARE_COHORT_VCF {
 
     main:
 
-    // Build the GVCF + TBI lists separately for nf-core combinegvcfs.
-    // Optionally append the LineagesAndOutgroupV2 reference GVCF.
-    def gvcfs_only_ch = cohort_gvcfs_ch
+    // Build the [meta, [gvcfs], [tbis]] input shape nf-core gatk4/combinegvcfs
+    // expects. Collect every path in one go (avoids .merge() losing the list
+    // structure), then partition by suffix inside the map closure.
+    def combine_input_ch = cohort_gvcfs_ch
         .flatten()
-        .filter { it instanceof java.nio.file.Path && it.name.endsWith('.gz') }
+        .filter { it instanceof java.nio.file.Path }
         .collect()
-        .map { paths -> params.use_ref_gvcf ? paths + [file(params.ref_gvcf,     checkIfExists: true)] : paths }
-
-    def tbis_only_ch = cohort_gvcfs_ch
-        .flatten()
-        .filter { it instanceof java.nio.file.Path && it.name.endsWith('.tbi') }
-        .collect()
-        .map { paths -> params.use_ref_gvcf ? paths + [file(params.ref_gvcf_tbi, checkIfExists: true)] : paths }
-
-    // Combine into nf-core gatk4/combinegvcfs input: [meta, [vcfs], [tbis]]
-    def combine_input_ch = gvcfs_only_ch
-        .merge(tbis_only_ch)
-        .map { gvcfs, tbis -> [ [id: params.vcf_name], gvcfs, tbis ] }
+        .map { paths ->
+            def gvcfs = paths.findAll { it.name.endsWith('.gz') }
+            def tbis  = paths.findAll { it.name.endsWith('.tbi') }
+            if (params.use_ref_gvcf) {
+                gvcfs = gvcfs + [ file(params.ref_gvcf,     checkIfExists: true) ]
+                tbis  = tbis  + [ file(params.ref_gvcf_tbi, checkIfExists: true) ]
+            }
+            [ [id: params.vcf_name], gvcfs, tbis ]
+        }
 
     GATK_COMBINE_GVCFS(
         combine_input_ch,
