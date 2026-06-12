@@ -1,8 +1,8 @@
 # Plan 2 — *Mycobacterium bovis* Integration
 
-**Status:** code assets ready on `feat/plan2-mbovis`, awaiting integration.
+**Status:** 🟡 rebase complete — wiring done, end-to-end test run pending.
 **Base branch:** `nf-core-port` on `mycobactopia-org/MAGMA` (post-Plan-1 / `v0.3.0`).
-**Working branch:** `feat/plan2-mbovis` (2 commits ahead of an early scaffold ancestor).
+**Working branch:** `feat/plan2-mbovis-v2` — 2 commits ahead of `nf-core-port` (rebased, replaces old `feat/plan2-mbovis`).
 **Depends on:** Plan 1 ✅ merged.
 **Relationship to Plan 3:** can be implemented standalone (Path A) **or** can ride on top of Plan 3's XBS extraction (Path B — recommended once Plan 3 lands). See "Two implementation paths" below.
 
@@ -38,21 +38,29 @@ Files added / changed (~352K lines, mostly the FASTA + GenBank reference):
 | `workflows/magma.nf` (25 lines) | Wires the new profile into the top-level workflow |
 | `scripts/create_test_data.sh` (157 lines) | Generates the small subsampled *M. bovis* test dataset |
 
-## 3. What's missing (the actual Plan-2 work)
+## 3. Work log — done vs. remaining
 
-The branch was started before Plan 1 merged, so most of the work boils down to **rebasing + finishing the wiring**:
+### ✅ Done (as of 2026-06-12, on `feat/plan2-mbovis-v2`)
 
-1. **Rebase `feat/plan2-mbovis` onto `nf-core-port`.** The pre-Plan-1 commits will conflict in `subworkflows/local/prepare_cohort_vcf.nf` (was edited heavily during the nf-core port) and `workflows/magma.nf` (now down from 662 → 204 lines, completely restructured). Resolution strategy: discard the old `workflows/magma.nf` diff (organism switch belongs in a config profile now, not the workflow file), keep the `prepare_cohort_vcf.nf` SnpEff parameterization.
-2. **Add an `mbovis` profile** in `conf/` selecting:
-   - `ref_fasta_basename = "NC_002945v4"`
-   - `ref_fasta_dir = "${projectDir}/resources/genome"`
-   - `excluded_loci_list = "${projectDir}/resources/regions/mbovis/excluded_loci.list"`
-   - `snpeff_genome_id = "mbovis_AF2122"`
-   - `dbsnp_vcf` + `coll2018_vcf` — **TODO: build or import M. bovis equivalents.** Without these BQSR + VQSR can't run on *M. bovis* data. Stopgap: set `skip_base_recalibration = true` and skip VQSR / use hard filters.
-   - `skip_tbprofiler_fastq = true`, `skip_tbprofiler_vcf = true`, `skip_ntmprofiler = true`, `skip_spotyping = true` (none of these have *M. bovis* support).
-3. **Carry the `prepare_cohort_vcf.nf` SnpEff genome-ID parameterization forward** into Plan 1's refactored version. The 18-line tweak from `7e90a04` needs to be replayed onto the new file structure.
-4. **Run the subsampled *M. bovis* test dataset end-to-end** (`-profile mbovis,abc_cluster` or `mbovis,test`). Confirm variants come out, SnpEff annotations look correct, region exclusions kick in.
-5. **Document the gaps** in the README — no DR profiling, VQSR depends on user-supplied truth set, etc.
+1. **Rebase complete** — `feat/plan2-mbovis-v2` branches from `nf-core-port@eb4abef` (post-Plan-1, v0.3.0). All pre-Plan-1 scaffolding discarded; only the M. bovis-specific assets and wiring carried forward.
+
+2. **`mbovis` profile** — `conf/organisms/mbovis.config` sets `ref_fasta_basename`, `snpeff_genome_id`, `snpeff_config_file`, `snpeff_db_dir`, clears all Mtb truth VCFs, and sets all relevant skip flags (`skip_variant_recalibration`, `skip_spotyping`, `skip_ntmprofiler`, `skip_ismapper`). `conf/organisms/mtb.config` documents Mtb defaults for reference.
+
+3. **SnpEff dual-mode** — `modules/local/snpeff/snpeff.nf` now takes 4 inputs (VCF, ref, `snpeff_config`, `snpeff_db`). For Mtb (`snpeff_config_file = ""`), the NO_FILE sentinel is passed and the container's pre-installed DB is used. For M. bovis, the config/db are staged, the DB is built with `snpEff build -dataDir data`, and annotation follows.
+
+4. **SnpEff channel staging** — `subworkflows/local/prepare_cohort_vcf.nf` resolves `snpeff_config_ch` and `snpeff_db_ch` via NO_FILE sentinel logic and passes them through to `SNPEFF`.
+
+5. **ISMAPPER wired** — `workflows/magma.nf` now imports `ISMAPPER` + `BCFTOOLS_VIEW_ISMAPPER` and calls them under an `if (!params.skip_ismapper)` guard (skipped by default in mbovis.config).
+
+6. **`nextflow.config` cleaned up** — default `snpeff_config_file` and `snpeff_db_dir` set to `""` (use container DB for Mtb). Profile entries `mtb` and `mbovis` added.
+
+7. **`.gitignore` fixed** — `!resources/snpeff/data/` exception allows the M. bovis SnpEff source files to be tracked.
+
+### 🔲 Still to do
+
+1. **Run the subsampled *M. bovis* test dataset end-to-end** (`-profile mbovis,abc_cluster` or `mbovis,test`). An *M. bovis* SRA accession is needed for `scripts/create_test_data.sh`. Confirm variants, SnpEff annotations, and region exclusions.
+2. **Document gaps** in the README — no DR profiling, VQSR disabled until a *M. bovis* truth VCF is curated, ISMapper pending IS element query sequences.
+3. **Open PR** from `feat/plan2-mbovis-v2` → `nf-core-port` once the end-to-end test passes.
 
 ## 4. Two implementation paths
 
