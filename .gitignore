@@ -1,6 +1,9 @@
 .nextflow*
 work/
 data/
+# Allow SnpEff data bundled with the pipeline (organism-specific annotation DBs)
+!resources/snpeff/data/
+!resources/snpeff/data/**
 results/
 .DS_Store
 testing/
