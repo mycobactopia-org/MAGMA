@@ -26,6 +26,10 @@ include { QUALITY_CHECK_WF         } from '../subworkflows/local/quality_check_w
 // ── Structural variants (DELLY) ────────────────────────────────────────────────
 include { STRUCTURAL_VARIANTS_ANALYSIS_WF } from '../subworkflows/local/structural_variants_analysis_wf'
 
+// ── IS element insertion detection (ISMapper) ──────────────────────────────────
+include { ISMAPPER                         } from '../modules/local/ismapper/ismapper'
+include { BCFTOOLS_VIEW as BCFTOOLS_VIEW_ISMAPPER } from '../modules/local/bcftools/view'
+
 // ── Cohort joint-genotyping + phylogeny + clustering ──────────────────────────
 include { MERGE_WF                } from '../subworkflows/local/merge_wf'
 
@@ -126,6 +130,22 @@ workflow MAGMA {
         // =====================================================================
 
         STRUCTURAL_VARIANTS_ANALYSIS_WF(approved_fastqs_ch, all_samples_ch, outdir)
+
+        // =====================================================================
+        // ISMAPPER — IS element insertion site detection
+        // Skipped by default for M. bovis (skip_ismapper = true in mbovis.config)
+        // until M. bovis IS element query sequences are assembled.
+        // =====================================================================
+
+        if (!params.skip_ismapper) {
+            ISMAPPER(
+                approved_fastqs_ch,
+                params.ref_fasta_gb,
+                params.ref_fasta,
+                params.queries_multifasta
+            )
+            BCFTOOLS_VIEW_ISMAPPER(ISMAPPER.out.formatted_vcf)
+        }
 
         // =====================================================================
         // MERGE_WF — cohort joint-genotyping + phylogeny + clustering
