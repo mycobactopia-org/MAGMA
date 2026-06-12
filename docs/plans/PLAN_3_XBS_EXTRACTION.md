@@ -152,3 +152,185 @@ mycobactopia-org/xbs-variant-calling/
 - **Plan 1 (nf-core port)**: ✅ done. Plan 3 builds on Plan 1's nf-core module migration — the same registry modules get installed in the new repo.
 - **Plan 2 (M. bovis)**: see `PLAN_2_MBOVIS_INTEGRATION.md`. Plan 2 can be implemented standalone *or* via Plan 3's Path B (M. bovis as the worked example of Plan 3's genericness contract). Path B is recommended once Plan 3 Phase 4 lands.
 - **NF_CORE_TBANALYZER**: future. When MAGMA is included as a subworkflow of TBANALYZER, processes will display `NF_CORE_TBANALYZER:MAGMA:XBS_VARIANT_CALLING:<process>` — clean naming all the way down the include stack.
+
+---
+
+## 11. Phase 4 — MAGMA integration (design, awaiting Phase 3 validation)
+
+**Status:** plan only. Implementation blocked on Phase 3 SciVer-style validation of `xbs-variant-calling` standalone (currently waiting on abc-cluster connectivity). When standalone XBS is green, the table below is the playbook.
+
+**Internal subworkflow naming update.** During Phase 2 build, the cohort-side subworkflow was renamed `XBS_COHORT_VQSR` → `XBS_COHORT` (the workflow does CombineGVCFs + GenotypeGVCFs + SelectVariants split + VQSR — the longer name overemphasized one stage). All process display names below reflect this.
+
+### 11.1 Runtime process names after integration
+
+When MAGMA imports the XBS subworkflow, MAGMA's current `MAP_WF`, `CALL_WF` mapping-through-HC, and `MERGE_WF` CombineGVCFs-through-VQSR chains collapse into the call graph below:
+
+```
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:BWA_MEM
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_INDEX_LIB
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_MERGE
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_MARKDUPLICATES
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_INDEX_MARKDUP
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_BASERECALIBRATOR        ← MAGMA enables BQSR
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_APPLYBQSR
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_INDEX_RECAL
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_HAPLOTYPECALLER
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_STATS
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_FLAGSTAT
+MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:PICARD_COLLECTWGSMETRICS
+
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_COMBINEGVCFS
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_GENOTYPEGVCFS
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_SELECTVARIANTS_SNP
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_SELECTVARIANTS_INDEL
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_VARIANTRECALIBRATOR_SNP
+MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_APPLYVQSR_SNP
+```
+
+MAGMA's `params.input` integration sets:
+
+| Param | Value | Why |
+|---|---|---|
+| `bwa_extra_args` | `"-k 100"` | MAGMA's current BWA-MEM tuning |
+| `skip_bqsr` | `false` | MAGMA enables BQSR by default (overriding XBS paper-true default) |
+| `skip_snp_vqsr` | `false` | MAGMA runs SNP VQSR |
+| `skip_indel_vqsr` | `true` | MAGMA uses INDEL hard filters, not VQSR |
+| `target_titv` | `1.85` | MTB-specific Ti/Tv from MAGMA |
+| `joint_name` | `"joint"` | matches MAGMA's `params.vcf_name` |
+| `sample_ploidy` | `1` | bacterial default (unchanged) |
+
+When MAGMA is later wrapped by `NF_CORE_TBANALYZER`, every process gets one extra prefix level: `NF_CORE_TBANALYZER:MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:BWA_MEM`.
+
+### 11.2 Name comparison — old MAGMA process → new MAGMA process
+
+| MAGMA v0.3.0 / nf-core-port | After Phase 4 |
+|---|---|
+| `MAGMA:MAP_WF:BWA_MEM` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:BWA_MEM` |
+| `MAGMA:CALL_WF:SAMTOOLS_MERGE` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_MERGE` |
+| `MAGMA:CALL_WF:GATK_MARK_DUPLICATES` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_MARKDUPLICATES` |
+| `MAGMA:CALL_WF:GATK_BASE_RECALIBRATOR` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_BASERECALIBRATOR` |
+| `MAGMA:CALL_WF:GATK_APPLY_BQSR` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_APPLYBQSR` |
+| `MAGMA:CALL_WF:SAMTOOLS_INDEX` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_INDEX_RECAL` |
+| `MAGMA:CALL_WF:SAMTOOLS_STATS` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_STATS` |
+| `MAGMA:CALL_WF:GATK_COLLECT_WGS_METRICS` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:PICARD_COLLECTWGSMETRICS` ⚠️ |
+| `MAGMA:CALL_WF:GATK_FLAG_STAT` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:SAMTOOLS_FLAGSTAT` ⚠️ |
+| `MAGMA:CALL_WF:GATK_HAPLOTYPE_CALLER` | `MAGMA:XBS_VARIANT_CALLING:XBS_PER_SAMPLE:GATK4_HAPLOTYPECALLER` |
+| `MAGMA:MERGE_WF:PREPARE_COHORT_VCF:GATK_COMBINE_GVCFS` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_COMBINEGVCFS` |
+| `MAGMA:MERGE_WF:PREPARE_COHORT_VCF:GATK_GENOTYPE_GVCFS` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_GENOTYPEGVCFS` |
+| `MAGMA:MERGE_WF:SNP_ANALYSIS:GATK_SELECT_VARIANTS_SNP` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_SELECTVARIANTS_SNP` |
+| `MAGMA:MERGE_WF:SNP_ANALYSIS:GATK_VARIANT_RECALIBRATOR_*` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_VARIANTRECALIBRATOR_SNP` |
+| `MAGMA:MERGE_WF:SNP_ANALYSIS:GATK_APPLY_VQSR_SNP` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_APPLYVQSR_SNP` |
+| `MAGMA:MERGE_WF:INDEL_ANALYSIS:GATK_SELECT_VARIANTS_INDEL` | `MAGMA:XBS_VARIANT_CALLING:XBS_COHORT:GATK4_SELECTVARIANTS_INDEL` |
+| `MAGMA:CALL_WF:LOFREQ_*` | **stays MAGMA-side** — needs new `LOFREQ_PER_SAMPLE_WF` (XBS doesn't do LoFreq) |
+| `MAGMA:CALL_WF:UTILS_COHORT_STATS` | **stays MAGMA-side** — MAGMA's cohort QC scoring; consumes XBS's per-sample QC emits |
+| `MAGMA:MERGE_WF:SNP_ANALYSIS:GATK_SELECT_VARIANTS_EXCLUSION_SNP` | **stays MAGMA-side** — rRNA exclusion is downstream of XBS |
+| `MAGMA:MERGE_WF:INDEL_ANALYSIS:GATK_SELECT_VARIANTS_EXCLUSION_INDEL` | **stays MAGMA-side** — same |
+| `MAGMA:MERGE_WF:SNP_ANALYSIS:OPTIMIZE_VARIANT_RECALIBRATION:*` | **DELETED** — XBS's paper-true single-pass VQSR supersedes MAGMA's grid-search variant |
+
+Two module-name renames (⚠️) deserve special attention — they appear in process display *and* in publishDir paths:
+
+- `GATK_COLLECT_WGS_METRICS` → `PICARD_COLLECTWGSMETRICS` (nf-core registers Picard tools under `picard/`)
+- `GATK_FLAG_STAT` → `SAMTOOLS_FLAGSTAT` (nf-core has no `gatk4/flagstat`)
+
+Output content is unchanged but file paths shift; MAGMA's `UTILS_COHORT_STATS` parser may grep by filename — needs auditing before Phase 4 lands.
+
+### 11.3 Files in MAGMA that change
+
+| File | Change |
+|---|---|
+| `workflows/magma.nf` | Replace `MAP_WF` call + `CALL_WF` per-sample chain + `MERGE_WF` CombineGVCFs-through-VQSR chain with one `XBS_VARIANT_CALLING(...)` call. Wire MAGMA-specific channels (`ref_fasta`, `coll2018_vcf`, …) into XBS's input shape. |
+| `subworkflows/local/call_wf.nf` | Slim to LoFreq chain + `UTILS_COHORT_STATS`. Or split into a new `lofreq_per_sample_wf.nf` and delete CALL_WF as a unit. |
+| `subworkflows/local/map_wf.nf` | **DELETE** — XBS does mapping with `bwa_extra_args="-k 100"`. |
+| `subworkflows/local/merge_wf.nf` | `PREPARE_COHORT_VCF` (CombineGVCFs+GenotypeGVCFs+SnpEff+bgzip+index) → SnpEff + bgzip + index of XBS's `raw_variants` emit. Drop SNP_ANALYSIS's VQSR portion (XBS does it). Keep rRNA exclusion in both SNP_ANALYSIS / INDEL_ANALYSIS. Keep `GATK_MERGE_VCFS_INC`. Keep downstream phylogeny / cluster. |
+| `subworkflows/local/prepare_cohort_vcf.nf` | Drop CombineGVCFs + GenotypeGVCFs (delegated to XBS); now just SnpEff + bgzip + index. |
+| `subworkflows/local/snp_analysis.nf` | Drop the VQSR processes; keep rRNA exclusion. |
+| `subworkflows/local/indel_analysis.nf` | Drop the VQSR processes; keep rRNA exclusion. |
+| `subworkflows/local/optimize_variant_recalibration.nf` | **DELETE** — MAGMA's grid-search VQSR replaced by XBS's single-pass. |
+| `modules/local/*` + `modules/nf-core/gatk4/*` | 16 modules become unused (XBS provides them). Recommend `git rm` at integration time to avoid drift. |
+| `modules.json` | Drop entries for the 16 modules. Add an XBS subworkflow entry (mechanism TBD — see §11.4). |
+| `conf/modules.config` | Drop `withName` blocks for the 16 XBS-covered modules. |
+| `conf/abc_cluster.config` | DELLY / BCFTOOLS overrides stay (unrelated to XBS). If any XBS-covered modules had abc overrides, they move to xbs-variant-calling's `conf/abc_cluster.config`. |
+| `NFCORE_MIGRATION_TRACKER.md` | Append "Plan 3 integration" section. |
+
+Net diff estimate: **~3000 lines deleted, ~50 lines added** on the MAGMA side.
+
+### 11.4 How MAGMA pulls in XBS — three mechanism options
+
+| Mechanism | Pros | Cons |
+|---|---|---|
+| **`nf-core subworkflows install` from custom remote** | Standard tooling; `modules.json` pinning | Requires xbs-variant-calling to expose its subworkflow at `subworkflows/<org>/<name>/main.nf`, not the current `subworkflows/local/`. **Structural change to xbs-variant-calling.** |
+| **Git submodule** | No structural change to xbs-variant-calling; commit-SHA pinning; one command to bump version | Submodule UX (`git submodule update --init`); extra step on cloning |
+| **Copy-and-pin** | No external infra; pin via `XBS_VERSION` constant + sync script | Manual sync; drift risk; non-idiomatic for nf-core |
+
+**Recommendation for Phase 4 v1: git submodule.** Path becomes:
+
+```
+mycobactopia-org/MAGMA/
+├── submodules/
+│   └── xbs-variant-calling/         # pinned at SHA in .gitmodules
+│       └── subworkflows/local/xbs_variant_calling_wf.nf
+└── workflows/magma.nf
+    include { XBS_VARIANT_CALLING } from '../submodules/xbs-variant-calling/subworkflows/local/xbs_variant_calling_wf'
+```
+
+Defer the `nf-core subworkflows install` route to xbs `v0.3.0+` once we restructure for nf-core/subworkflows registry conventions (out of scope for v1 integration).
+
+### 11.5 SciVer impact — what to expect vs `v0.2.4-sciver` baseline
+
+| Output | Risk | Reasoning |
+|---|---|---|
+| `analyses/snp_distances/joint.ExDR.{Ex,Inc}Complex.snp_dists.tsv` | **LOW** | Downstream of SNP cohort VCF. Byte-identical if SNP VCF unchanged. |
+| Phylogeny treefiles + 4 cluster picks | **LOW** | Topology-equivalent if SNP VCF unchanged. |
+| `vcf_files/cohort/snp_variant_files/joint.filtered_SNP_exc-rRNA.vcf.gz` record count | **MEDIUM** | MAGMA's `OPTIMIZE_VARIANT_RECALIBRATION` (grid-search over `--max-gaussians`) vs XBS's single-pass at `--max-gaussians 4` may produce different filtered record counts (likely close, not byte-identical). |
+| `joint.filtered_SNP_inc-rRNA.vcf.gz` record count | **MEDIUM** | Same. |
+| `joint.lofreq.vcf.gz` | **LOW** | LoFreq chain stays MAGMA-side, untouched. |
+| `joint.filtered_SNP.RawIndels.vcf.gz` | **MEDIUM** | Goes through XBS's CombineGVCFs + GenotypeGVCFs; should match if ext.args parity holds. |
+| `QC_statistics/cohort/joint.merged_cohort_stats.tsv` | **HIGH** | `UTILS_COHORT_STATS` parses per-sample stats. The samtools_stats + flagstat + wgs_metrics filenames change (XBS uses `${meta.id}.SamtoolStats`, `${meta.id}.FlagStat`, `${meta.id}.WgsMetrics`). If the parser greps by filename pattern, it breaks. |
+| 3 major_variants TBprofiler itol summaries | **LOW** | Downstream of SNP VCF. |
+| 3 minor_variants TBprofiler itol summaries | **LOW** | Unchanged (LoFreq chain). |
+| 3 structural_variants TBprofiler itol summaries | **LOW** | Unchanged (DELLY chain). Known divergence stays at 41 vs 39. |
+
+### 11.6 Flag-parity checks needed before Phase 4 lands
+
+These are the most likely sources of unexpected SciVer divergence. Audit each before submitting the Phase 4 PR:
+
+1. **`BWA_MEM`** — MAGMA's local module uses `-k 100`. XBS exposes `bwa_extra_args` for this. MAGMA-side integration **must** set `bwa_extra_args = "-k 100"`.
+2. **`GATK_HAPLOTYPE_CALLER`** — MAGMA's local version emits `--bam-output ${meta.id}.haplotype_caller.bam` so downstream MAGMA processes consume the realigned BAM. XBS does not emit the realigned BAM. **Decide:** does MAGMA actually consume it? If yes, add a `haplotypecaller_emit_bam` param to XBS.
+3. **`GATK_MARK_DUPLICATES`** — MAGMA's local has specific `ext.prefix` + metrics filename. XBS uses `${meta.id}.markdup.bam`. Filename change may cascade into MAGMA's downstream regex'es.
+4. **`GATK_VARIANT_RECALIBRATOR_*`** — MAGMA's `OPTIMIZE_VARIANT_RECALIBRATION` runs VQSR multiple times with different `--max-gaussians` values and picks the best. XBS does single-pass at `--max-gaussians 4`. **This is the biggest behavioral divergence.** Decide: (a) recreate optimize-grid in XBS as a `vqsr_optimize_gaussians = [4, 3, 2, 1]` param, or (b) accept the divergence and update SciVer baselines.
+5. **`UTILS_COHORT_STATS`** — MAGMA's parser may pattern-match on the old `GATK_FLAG_STAT` / `GATK_COLLECT_WGS_METRICS` filenames. Update parsing to match XBS's `*.FlagStat`, `*.WgsMetrics`, `*.SamtoolStats`.
+
+### 11.7 Phase 4 deliverables (one PR + one SciVer + one tag)
+
+1. **One PR on `mycobactopia-org/MAGMA` `nf-core-port`** that:
+   - Adds `mycobactopia-org/xbs-variant-calling` as a git submodule pinned at the xbs commit that passed Phase 3 standalone validation
+   - Refactors `magma.nf`, `call_wf.nf`, `merge_wf.nf`, `prepare_cohort_vcf.nf`, `snp_analysis.nf`, `indel_analysis.nf` per §11.3
+   - Deletes `map_wf.nf`, `optimize_variant_recalibration.nf`, 16 modules
+   - Updates `UTILS_COHORT_STATS` filename parsing
+   - Adds MAGMA-side params (§11.1)
+2. **One follow-up SciVer run** against the same MAGMA dataset → produces `v0.4.0-sciver` numbers. Document accepted shifts.
+3. **Tag `v0.4.0` on `nf-core-port`** if SciVer is acceptable. (Doesn't need to be byte-identical to `v0.2.4-sciver`; some shifts are expected, especially in the VQSR-derived filtered SNP VCFs from §11.6 item 4.)
+
+### 11.8 Prerequisites — what must be true before Phase 4 starts
+
+- ✅ `xbs-variant-calling` Phase 2 complete (subworkflows written, lint clean, scaffold runnable).
+- ⏳ `xbs-variant-calling` Phase 3 complete: end-to-end run on abc-cluster against the 3-sample EXIT-RIF test profile. Expected outputs:
+  - per-sample GVCFs landed
+  - cohort `raw_variants.vcf.gz` produced
+  - `FilteredSNPs.vcf.gz` produced (VQSR converged with `max-gaussians=1`)
+  - no fatal errors
+  - SciVer-style sanity diff against MAGMA's `v0.3.0` outputs for the equivalent stages (record counts close; full byte-identity not required at this stage)
+- ⏳ Decision on the OPTIMIZE_VARIANT_RECALIBRATION question (§11.6 item 4). If recreating the grid in XBS, that's a small follow-up PR on `xbs-variant-calling` first.
+- ⏳ Decision on the `--bam-output` question (§11.6 item 2). If MAGMA needs the realigned BAM, add the param to XBS first.
+
+### 11.9 Resumption checklist (for whoever picks Phase 4 up after a break)
+
+1. `git fetch origin && git checkout nf-core-port && git pull`
+2. Read this `PLAN_3_XBS_EXTRACTION.md` §11.
+3. Check the standalone xbs-variant-calling validation status — most recent tag should be `v0.x.x-validated` or similar.
+4. Resolve the two prerequisites in §11.8 with the user before touching MAGMA code.
+5. Create a working branch off `nf-core-port`: `git checkout -b feat/xbs-integration`.
+6. Walk §11.3 and §11.6 in order, smallest-change-first. Commit after each subworkflow file.
+7. Run nextflow lint after each commit; run a local-conda smoke test after the full refactor.
+8. Submit to abc-cluster for the v0.4.0-sciver run.
+9. Open the PR with the link to this section as the implementation tracker.
