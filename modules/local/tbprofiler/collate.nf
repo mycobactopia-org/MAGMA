@@ -16,7 +16,9 @@ process TBPROFILER_COLLATE {
 
     script:
     def prefix     = task.ext.prefix ?: joint_name
-    def optionalDb = resistanceDb.name != 'NO_FILE' ? "--db ${resistanceDb}" : ""
+    // Match torch-magma: truthiness check (empty list [] is falsy → omit --db).
+    // `.name != 'NO_FILE'` produced `--db []` for an empty list, which tb-profiler rejects.
+    def optionalDb = resistanceDb ? "--db ${resistanceDb}" : ""
     """
     tb-profiler collate \\
         ${optionalDb} \\

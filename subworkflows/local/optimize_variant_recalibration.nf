@@ -157,7 +157,24 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
 
     emit:
     // optimized_vqsr_ch is the tuple needed by GATK_APPLY_VQSR: [ meta, variants_tbi, variants_vcf, recal_tbi, recal_vcf, tranches ]
+    //
+    // Port note: select_variants_vcftuple_ch is keyed on a meta MAP (its source,
+    // GATK_SELECT_VARIANTS_SNP, emits tuple val(meta), ...). The best-annotation
+    // outputs from UTILS_SELECT_BEST_ANNOTATIONS are keyed on joint_name (a
+    // STRING — same module's `val(joint_name)` input). A plain .join on those
+    // two collapses to an empty channel because meta_map ≠ string. That silent
+    // empty channel meant GATK_APPLY_VQSR_SNP never fired in n11 — and the
+    // entire downstream chain (MERGE_VCFS_INC → MAJOR_VARIANT → PHYLOGENY →
+    // SNPDISTS / IQTREE / CLUSTER) never ran, which in turn caused MULTIQC to
+    // fail with the snp_dists.tsv missing.
+    //
+    // Fix: project meta to meta.id for the join, then re-assemble the 6-tuple
+    // with the meta map restored as the first element.
     optimized_vqsr_ch = select_variants_vcftuple_ch
+        .map { meta, tbi, vcf -> [ meta.id, meta, tbi, vcf ] }
         .join(UTILS_SELECT_BEST_ANNOTATIONS.out.bestRecalVcfTuple)
         .join(UTILS_SELECT_BEST_ANNOTATIONS.out.bestTranchesFile)
+        .map { _id, meta, tbi, vcf, recalTbi, recalVcf, tranches ->
+            [ meta, tbi, vcf, recalTbi, recalVcf, tranches ]
+        }
 }
