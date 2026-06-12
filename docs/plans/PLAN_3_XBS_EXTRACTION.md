@@ -4,7 +4,7 @@
 **Goal:** lift the canonical XBS variant-calling spine out of MAGMA into a standalone, reusable Nextflow pipeline + subworkflow that works on any haploid bacterium with a reference + truth sets.
 **New repo:** `mycobactopia-org/xbs-variant-calling` (to be created).
 **Consumer:** MAGMA on `nf-core-port` (and, later, any other bacterial pipeline — NF_CORE_TBANALYZER, plan-2 *M. bovis*, etc.).
-**Reference paper:** Goig et al., *Microbial Genomics*, 2022 — *Comprehensive and accurate genetic variant identification from contaminated and low-coverage Mycobacterium tuberculosis whole genome sequencing data* ([PMC8743552](https://pmc.ncbi.nlm.nih.gov/articles/PMC8743552/)).
+**Reference paper:** Heupink et al., *Microbial Genomics*, 2021 — *Comprehensive and accurate genetic variant identification from contaminated and low-coverage Mycobacterium tuberculosis whole genome sequencing data* ([PMC8743552](https://pmc.ncbi.nlm.nih.gov/articles/PMC8743552/)).
 **Reference implementation:** [TORCH-Consortium/XBS-variant-calling-core](https://github.com/TORCH-Consortium/XBS-variant-calling-core) — 2 bash scripts.
 
 ---
@@ -14,7 +14,7 @@
 XBS-core was *already* extracted from MAGMA once (as 2 bash scripts in the TORCH-Consortium/XBS-variant-calling-core repo, last touched 2022). The current MAGMA codebase duplicates that logic in Nextflow form. Honoring the original architectural split — and modernizing it to Nextflow — gives:
 
 - **Reuse**: any future bacterial pipeline (Plan 2 *M. bovis*, NF_CORE_TBANALYZER, hypothetical *S. aureus* / *E. coli* pipelines) imports one subworkflow rather than re-implementing GATK joint calling.
-- **Fidelity**: the standalone repo can be unit-tested against the Goig 2021 bash core for byte-level equivalence, then MAGMA inherits that fidelity for free.
+- **Fidelity**: the standalone repo can be unit-tested against the Heupink 2021 bash core for byte-level equivalence, then MAGMA inherits that fidelity for free.
 - **Cleaner MAGMA**: MAGMA's `CALL_WF`, `PREPARE_COHORT_VCF`, `SNP_ANALYSIS`, `INDEL_ANALYSIS` shrink down to "compose the XBS subworkflow + add MAGMA-specific layers (LoFreq, DELLY, profilers, phylogeny)".
 
 ## 2. Architectural boundaries
@@ -79,7 +79,7 @@ Display: `XBS_VARIANT_CALLING:<process>` standalone, `MAGMA:XBS_VARIANT_CALLING:
 
 ## 5. The canonical 12-stage spine
 
-Taken from the 2 XBS-core bash scripts and the Goig 2021 paper, byte-faithful to the published flags:
+Taken from the 2 XBS-core bash scripts and the Heupink 2021 paper, byte-faithful to the published flags:
 
 | # | Stage | Tool | Key flags |
 |---|---|---|---|
@@ -102,7 +102,7 @@ Taken from the 2 XBS-core bash scripts and the Goig 2021 paper, byte-faithful to
 |---|---|---|
 | **0. Bootstrap repo** | `mycobactopia-org/xbs-variant-calling` initialized from nf-core template v4.0.2 — schema, samplesheet, test profile, CI green on `nextflow lint`. | nf-core lint |
 | **1. Lift modules** | `nf-core modules install` for all 12 tools (bwa/mem, samtools/{sort,index,merge,stats}, gatk4/{markduplicates,baserecalibrator,applybqsr,haplotypecaller,combinegvcfs,genotypegvcfs,selectvariants,variantrecalibrator,applyvqsr,collectwgsmetrics,flagstat}). Apply the same patches MAGMA uses (combinegvcfs: add `tbi` emit; selectvariants: add `--exclude-intervals` mode). | `nextflow lint` per module |
-| **2. Build `XBS_VARIANT_CALLING`** | The 12-stage spine wired through `ext.args` / `modules.config` to match Goig 2021. Internal split: `XBS_PER_SAMPLE` (map → merge → MarkDup → optional BQSR → HC → QC) and `XBS_COHORT_VQSR` (CombineGVCFs → GenotypeGVCFs → 2× Select+VQSR+Apply). | Unit-test per module's `.command.sh` against XBS-core bash |
+| **2. Build `XBS_VARIANT_CALLING`** | The 12-stage spine wired through `ext.args` / `modules.config` to match Heupink 2021. Internal split: `XBS_PER_SAMPLE` (map → merge → MarkDup → optional BQSR → HC → QC) and `XBS_COHORT_VQSR` (CombineGVCFs → GenotypeGVCFs → 2× Select+VQSR+Apply). | Unit-test per module's `.command.sh` against XBS-core bash |
 | **3. End-to-end MTB validation** | Standalone test profile using MAGMA's 600k subsampled MTB dataset + Coll2018 truth + H37Rv refs. SciVer-style diff vs MAGMA v0.3.0 outputs for `joint.raw_variants`, `joint.filtered_SNP*`, `joint.filtered_INDEL*`. | byte-identical record counts |
 | **4. MAGMA integration** | Install xbs-variant-calling as nf-core subworkflow in MAGMA. Replace MAGMA's `CALL_WF` per-sample calling + `PREPARE_COHORT_VCF` + `SNP_ANALYSIS` + `INDEL_ANALYSIS` core with the subworkflow's emits. MAGMA's surrounding layers (LoFreq, DELLY, profilers, region exclusion, GATK_MERGE_VCFS_INC, phylogeny, clustering, reports) untouched. Tag `v0.4.0` on `nf-core-port`. | **MAGMA SciVer stays green vs `v0.2.4-sciver`** |
 | **5. Non-MTB demo** | Add a `test_mbovis` profile (riding on Plan 2 assets) or a synthetic non-MTB profile, proving "5 config values swap → works on another organism." | run completes, sensible VCF |
@@ -120,12 +120,12 @@ mycobactopia-org/xbs-variant-calling/
 │   ├── xbs_per_sample.nf                # stages 1–7
 │   └── xbs_cohort_vqsr.nf               # stages 8–12
 ├── conf/
-│   ├── modules.config                   # ext.args reproducing Goig 2021 flags
+│   ├── modules.config                   # ext.args reproducing Heupink 2021 flags
 │   ├── test_mtb.config                  # H37Rv + Coll2018
 │   └── test_mbovis.config               # AF2122 + mbovis truth set (Phase 5)
 ├── assets/
 │   └── samplesheet_schema.json          # study, sample, library, r1, r2 (MAGMA-compatible)
-├── CITATIONS.md                         # Goig 2021, XBS-core, GATK
+├── CITATIONS.md                         # Heupink 2021, XBS-core, GATK
 └── README.md
 ```
 
@@ -136,13 +136,13 @@ mycobactopia-org/xbs-variant-calling/
 3. **Per-sample QC inside the subworkflow but no gating.** Emit it; let consumers gate.
 4. **Versions via the standard nf-core `versions` topic.** MAGMA's `softwareVersionsToYAML` picks them up automatically.
 5. **MAGMA samplesheet shape** (`study, sample, library, r1, r2`) — flows through unchanged.
-6. **License: MIT.** Attribute Goig 2021 + XBS-core in `CITATIONS.md` and `README.md`.
+6. **License: MIT.** Attribute Heupink 2021 + XBS-core in `CITATIONS.md` and `README.md`.
 7. **No SnpEff in v1.** MAGMA does its own annotation downstream; XBS subworkflow stops at unannotated VCFs. Keeps the boundary clean.
 8. **VQSR is required, not optional, in v1.** Pipelines without a truth set fall outside the XBS contract. Future v2 could add a hard-filter fallback path.
 
 ## 9. Risk register
 
-- **VQSR is finicky at small N.** Goig 2021 used 12+ samples. Test datasets may need a special "small-N" config (lower `--max-gaussians`, skip Ti/Tv targeting). Defer to Phase 3.
+- **VQSR is finicky at small N.** Heupink 2021 used 12+ samples. Test datasets may need a special "small-N" config (lower `--max-gaussians`, skip Ti/Tv targeting). Defer to Phase 3.
 - **Truth set availability for non-MTB.** Real genericness depends on the user having one. Phase 5 will either find/build one for a demo organism or document the "build your own truth set" recipe.
 - **Phase-4 MAGMA refactor invalidates Nextflow caches.** Same one-time cost as v0.2.3 and v0.2.4 SciVer runs (~29 min on abc-cluster).
 - **GATK module patches must travel.** The two patches MAGMA carries (`combinegvcfs` tbi emit, `selectvariants` exclude-intervals mode) need to be re-applied in the new repo. Documented in `modules/nf-core/<tool>/<tool>.diff`.
