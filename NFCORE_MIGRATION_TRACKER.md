@@ -1,7 +1,10 @@
-# nf-core Module Migration Tracker (feat/plan1-nfcore-modules)
+# nf-core Module Migration Tracker (Plan 1)
 
-Worktree branch off `feat/plan1-implement-magma` for the Tier A migration plan.
+Branch: `feat/plan1-implement-magma`.
 Reference: `analysis/pipelines/torch-magma/NFCORE_MODULE_MIGRATION_ASSESSMENT.md`.
+
+**Current state:** code complete, SciVer green at `v0.2.4-sciver` (commit `64de4b3`).
+Ready to merge into `main`.
 
 ## Pattern established (POC: SNPDISTS, commit d341654)
 
@@ -32,43 +35,83 @@ After each commit, the byte-identity check is:
 - Accept only "byte-identical" or "cosmetic arg-order divergence with
   identical output".
 
-## Status
+End-to-end validation is **SciVer** against `magma-subsampled-test-v8`
+(torch-magma baseline). Tags `v0.2.0-sciver` → `v0.2.4-sciver` document
+successive green checkpoints; current SciVer surface (v0.2.4):
 
-| # | Module | Status | Commit | Notes |
-|---|---|---|---|---|
-| 1 | `snpdists` | ✅ MIGRATED | `9c4d846` | POC. Adapter folds `prefix_ch` into `meta.phylo_prefix`. Filename reproduced exactly via `ext.prefix`. Real-run verification pending (next end-to-end test). |
-| 5 | `samtools/stats` | ✅ MIGRATED | `e5491db` | Adapter: pad bam-only channel with `[]` for index slot; wrap ref as `[[id:'ref'], fasta, fai]` value tuple. Cosmetic diffs vs torch-magma (added `--threads`, long-form `--reference`, arg order) — same stats output. `ext.prefix = '${meta.id}.SamtoolStats'`. |
-| 9 | `lofreq/indelqual` | ✅ MIGRATED | `8726efd` | Adapter: wrap ref as `[[id:'ref'], fasta]` value tuple. `ext.args = '--dindel'`, `ext.prefix = '${meta.id}.dindel'`. Emits same dindel BAM; only flag order changes vs torch-magma. |
-| 2 | `iqtree` | pending | — | Same 2-channel pattern as snpdists; same adapter approach. Plus params-driven `if/else` → push into `ext.args` closure (case-on `params.iqtree_*`). |
-| 3 | `snpsites` | pending | — | Same 2-channel adapter as snpdists. |
-| 4 | `samtools/index` | ✅ MIGRATED | `2eff953` | 3 aliases (`SAMTOOLS_INDEX`, `_DELLY`, `_LOFREQ`). nf-core emits 2-tuple; downstream wants 3-tuple `[meta, bai, bam]`. Resolved with `SAMTOOLS_INDEX.out.index.join(bam_ch)` adapter at each of the 3 call sites. Cosmetic command diff: nf-core adds `-@ ${task.cpus}`. |
-| 6 | `delly/call` | ✅ MIGRATED | `e15ee0d` | Most involved adapter so far — pad 3-tuple to 6-tuple with `[]` for unused optionals (vcf/vcf_index/exclude_bed), wrap fasta+fai as separate value tuples, add `'bcf'` suffix selector. Cosmetic command diff: `--genome` (long) vs `-g`, `--outfile` vs `-o`, `--threads` added. |
-| 7 | `lofreq/call` | pending | — | nf-core: `lofreq/callparallel`. ext.args carries the per-call flags (NTM has `-r region`). |
-| 8 | `lofreq/filter` | ✅ MIGRATED | `6dacd7e` | Direct input match. nf-core writes bgzipped `.vcf.gz`, port wrote uncompressed `.vcf` — change is publish-only (`LOFREQ_FILTER.out` not consumed downstream; UTILS_REFORMAT_LOFREQ takes raw LOFREQ_CALL output). |
-| 13 | `gatk/index_feature_file` (×2 active aliases) | ✅ MIGRATED | `dc3af24` | nf-core emits `[meta, tbi]`; downstream wants `[meta, tbi, vcf]` (COHORT) or `[tbi, vcf]` (LOFREQ). Both rebuilt via `.index.join(bgzip_ch)` adapter. Per-alias `ext.args` for `-O <name>.tbi` still applies. Cosmetic command diff: `--input`/`--tmp-dir .`/`-Xmx${mem}M`/`-XX:-UsePerfData` added. |
-| 14 | `gatk/merge_vcfs` | ✅ MIGRATED | `c56fa18` | 1 alias (`GATK_MERGE_VCFS_INC`). Adapter: drop unused tbi paths, wrap VCFs into a list `[meta, [snpVcf, indelVcf]]`. Empty dict tuple `[[id:'none'], []]`. Output rebuild: `.out.tbi.join(.out.vcf)` for the downstream `[meta, tbi, vcf]` shape. |
-| 15 | `gatk/apply_vqsr` | ✅ MIGRATED | `295889c` | 1 alias (`GATK_APPLY_VQSR_SNP`). Tuple order swap: `[meta, tbi, vcf, recalTbi, recalVcf, tranches]` → `[meta, vcf, tbi, recalVcf, recalTbi, tranches]`. Move `-mode SNP` from positional val into `ext.args`. Output rebuild: `.out.tbi.join(.out.vcf)`. |
-| 20 | `gatk/mark_duplicates` (×2 aliases) | ✅ MIGRATED | `f8ba380` | 2 aliases (`GATK_MARK_DUPLICATES`, `_DELLY`). Pad with `[]` for the optional fasta/fai (CRAM-conversion-only). Emit rename: `.bam_tuple` → `.bam`. `ext.prefix` must include the `.bam` extension (nf-core uses it verbatim as output filename). Metrics file renamed (publish-only, harmless). |
-| 11 | `gatk/genotype_gvcfs` | ✅ MIGRATED | `7958159` | 1 alias. Reorder combined_ch `[meta, tbi, vcf]` → `[meta, vcf, tbi, [], []]`. 5 ref value tuples (fasta/fai/dict/dbsnp/dbsnp_tbi — last 2 empty). Emit consumer: `.out` → `.out.vcf`. |
-| 16-17 | `gatk/base_recalibrator` + `gatk/apply_bqsr` (×4 aliases) | ✅ MIGRATED | `a8a5143` | Disabled by default; low-risk migration. Pad `[meta, bam]` with `[]` for bai + intervals (gatk auto-indexes). 5 ref value tuples for BaseRecal, 3 bare paths for ApplyBQSR. ApplyBQSR forced to BAM via `ext.suffix='bam'` (default is CRAM). ext.prefix preserves `\${meta.id}.baserecalibrated`. |
-| 22 | `samtools/merge` (×2 aliases) | ✅ MIGRATED | `7cc8ef3` | 2 aliases. Pad with `[]` for index slot + empty fasta value tuple. Move `-f` from hardcoded script into `ext.args`. ext.prefix appends `.\${file_type}` automatically (gives `.sorted_reads.bam`). Emit consumer: `.out` → `.out.bam`. |
-| 21 | `bcftools/view` (×1 active alias — _DELLY) | ✅ MIGRATED | `7220e3c` | Local ran 3 commands (view+bgzip+index); nf-core does it in ONE via `-Ob` + `--write-index=csi`. Adapter joins DELLY's `.bcf` + `.csi` emits to feed nf-core's `[meta, vcf, index]` input. Output rebuild: `.out.vcf.join(.out.index)` to match the local's 3-tuple flatten chain. |
-| 23 | `gatk/haplotype_caller` | ✅ MIGRATED | `aeef5f4` | 1 alias. Reorder `[meta, bai, bam]` → `[meta, bam, bai, [], []]`. 5 ref value tuples (fasta/fai/dict/dbsnp/dbsnp_tbi — last 2 empty). `-ERC GVCF` and `--bam-output ${meta.id}.haplotype_caller.bam` moved into `ext.args`; `ext.prefix = '${meta.id}.g'` preserves the `.g.vcf.gz` filename. Output rebuild: `.out.tbi.join(.out.vcf)` for the downstream gvcf_ch chain. |
-| 19 | `gatk/select_variants` (×2 of 5 aliases) | ✅ MIGRATED | `91a0c72` | SNP + INDEL aliases migrated. PHYLOGENY (multi-file `-XL`), EXCLUSION_SNP, EXCLUSION_INDEL (need `--exclude-intervals` instead of nf-core's auto `--intervals`) stay local. 8 positional inputs collapsed to 1 tuple; `--select-type-to-include` + per-alias filename via `ext.args`/`ext.prefix`. Output rebuild via `.tbi.join(.vcf)`. |
-| 10 | `gatk/combine_gvcfs` | pending | — | `--variant ${input_list}` shape matches. |
-| 11 | `gatk/genotype_gvcfs` | pending | — | Direct match. |
-| 12 | `gatk/variants_to_table` | pending | — | Direct match. |
-| 13 | `gatk/index_feature_file` (×3 aliases) | pending | — | Direct; per-alias `-O` already plumbed via `ext.args`. |
-| 14 | `gatk/merge_vcfs` | pending | — | Direct match. |
-| 15 | `gatk/apply_vqsr` | pending | — | Direct match. |
-| 16 | `gatk/apply_bqsr` | pending | — | Direct match. |
-| 17 | `gatk/base_recalibrator` | pending | — | Direct match. |
-| 18 | `gatk/variant_recalibrator` (ANN2 alias) | pending | — | Per-mode `ext.args` already in modules.config. |
-| 19 | `gatk/select_variants` (×5 aliases) | pending | — | Each alias's args in `ext.args` already. |
-| 20 | `gatk/mark_duplicates` (×2 aliases) | pending | — | Direct match. |
-| 21 | `bcftools/view` (×2 aliases) | pending | — | Direct match. |
-| 22 | `samtools/merge` (×2 aliases) | pending | — | Tier B note: arg shape differs (`bams/*` glob vs file-list) — may need adapter or accept text divergence. |
-| 23 | `gatk/haplotype_caller` | LAST | — | gatk4's wrapper has many feature flags (DBSNP, intervals, DRAGSTR, bamout) plumbed via separate vars — careful `ext.args` mapping required. |
+- **Byte-identical**: 2 snp_distances TSVs, joint.merged_cohort_stats.tsv,
+  6 TBprofiler itol summaries (major + minor).
+- **Topology-identical** (tip-set): 2 phylogeny treefiles + 4 cluster
+  picks (5SNP/12SNP × Ex/Inc).
+- **Record-count match**: 5 of 6 cohort VCFs (SNP RawIndels, lofreq,
+  SNP exc/inc-rRNA, raw annotated).
+- **Known divergence**: delly cohort VCF (41 vs 39) + the 3 delly
+  TBprofiler itol summaries that derive from it. Root cause: DELLY 1.7.3
+  vs the bundled DELLY in `magma-container-1`. Tracked, accepted, not
+  blocking.
+
+## Status — modules migrated
+
+All Tier A modules migrated to nf-core registry; aliases in parens.
+
+| Module (nf-core path) | Aliases | Commit |
+|---|---|---|
+| `snpdists`                       | 1     | `9c4d846` |
+| `samtools/stats`                 | 1     | `e5491db` |
+| `samtools/index`                 | 3 (`_DELLY`, `_LOFREQ`) | `2eff953` |
+| `samtools/merge`                 | 2 (`_DELLY`) | `7cc8ef3` |
+| `lofreq/indelqual`               | 1     | `8726efd` |
+| `lofreq/filter`                  | 1     | `6dacd7e` |
+| `delly/call`                     | 1     | `e15ee0d` |
+| `bcftools/view`                  | 1 (`_DELLY`) | `7220e3c` |
+| `gatk4/index_feature_file`       | 2 (`_LOFREQ`) | `dc3af24` |
+| `gatk4/merge_vcfs`               | 1 (`_INC`) | `c56fa18` |
+| `gatk4/apply_vqsr`               | 1 (`_SNP`) | `295889c` |
+| `gatk4/mark_duplicates`          | 2 (`_DELLY`) | `f8ba380` |
+| `gatk4/genotype_gvcfs`           | 1     | `7958159` |
+| `gatk4/base_recalibrator`        | 2 (`_DELLY`) | `a8a5143` |
+| `gatk4/apply_bqsr`               | 2 (`_DELLY`) | `a8a5143` |
+| `gatk4/haplotype_caller`         | 1     | `aeef5f4` |
+| `gatk4/select_variants`          | 2 of 5 (`_SNP`, `_INDEL`) | `91a0c72` |
+| `gatk4/combine_gvcfs` (patched)  | 1 — adds `tbi` emit | `809c3b1` (+ `def7455` adapter) |
+| `gatk4/select_variants` (patched) | EXCLUSION_SNP/INDEL — `ext.intervals_mode='exclude'` | `84aa3e6` |
+| `gatk4/variantstotable` + new local `UTILS_VARIANT_TABLE_TO_FASTA` | 1 | `e2ee6fd` |
+
+In addition: **21 remaining local modules** were refactored to nf-core
+style with named `emit:` blocks (commit `92b319f`) so they compose
+identically with the migrated nf-core modules.
+
+## Deferred (intentionally still local)
+
+| Module | Reason for deferral |
+|---|---|
+| `gatk4/variantrecalibrator` (ANN2) | Local emits use `--output-model`, `--rscript-file`, and capture `.command.log` for downstream parsing — none of which the nf-core wrapper exposes. Migration is invasive. |
+| `snpsites` | nf-core variant has no `meta` in its input tuple; would force a phylogeny-subworkflow restructure. Defer until phylogeny rewrite. |
+| `gatk4/select_variants` PHYLOGENY alias | Multi-file `-XL` with paired tbi staging; nf-core wrapper expects a single intervals file. Would need either a patched wrapper or a small adapter that pre-concats the exclusion lists. |
+
+All three are isolated; each can be picked up independently after Plan 1
+lands. The non-migrated `modules/local/<tool>/` directories follow the
+same nf-core-style `emit:` conventions as the migrated ones, so the
+swap-when-ready cost stays small.
+
+## Subworkflow layout (torch-magma alignment)
+
+`workflows/magma.nf` (~204 lines) composes 8 subworkflows that mirror
+torch-magma's `workflows/*_wf.nf` 1:1:
+
+| Subworkflow file | Process group display |
+|---|---|
+| `subworkflows/local/validate_fastqs_wf.nf`              | `MAGMA:VALIDATE_FASTQS_WF:*` |
+| `subworkflows/local/quality_check_wf.nf`                | `MAGMA:QUALITY_CHECK_WF:*` |
+| `subworkflows/local/map_wf.nf`                          | `MAGMA:MAP_WF:BWA_MEM` |
+| `subworkflows/local/call_wf.nf`                         | `MAGMA:CALL_WF:*` |
+| `subworkflows/local/minor_variants_analysis_wf.nf`      | `MAGMA:MINOR_VARIANTS_ANALYSIS_WF:*` |
+| `subworkflows/local/structural_variants_analysis_wf.nf` | `MAGMA:STRUCTURAL_VARIANTS_ANALYSIS_WF:*` |
+| `subworkflows/local/merge_wf.nf`                        | `MAGMA:MERGE_WF:*` (includes existing nested `PHYLOGENY_ANALYSIS_*` / `CLUSTER_ANALYSIS_*` / `SNP_ANALYSIS:OPTIMIZE_VARIANT_RECALIBRATION:*`) |
+| `subworkflows/local/reports_wf.nf`                      | `MAGMA:REPORTS_WF:MULTIQC` |
+
+When `MAGMA` is later included as a subworkflow of `NF_CORE_TBANALYZER`,
+processes will display as `NF_CORE_TBANALYZER:MAGMA:<WF>:<process>`.
 
 ## Container strategy after migration (preserved, not disrupted)
 
@@ -80,7 +123,7 @@ when a module moves from `modules/local/` to `modules/nf-core/`.
 
 Proof in-repo: BWA_MEM is already an nf-core module and `conf/docker.config`
 routes it into `magma-container-2` via `withName: 'BWA.*|…' { container = … }`.
-This is exactly how the rest of Tier A will behave post-migration — emitted
+This is exactly how the rest of Tier A behaves post-migration — emitted
 commands stay byte-identical AND the user keeps the bundled-container option.
 
 After Tier A the user has three container modes:
@@ -93,14 +136,21 @@ After Tier A the user has three container modes:
 3. **Mix-and-match** — user writes a config that applies `withName` for some
    tool families and leaves others on biocontainers.
 
+The two container overrides added on `abc_cluster.config` after Tier A
+finished (DELLY 1.7.3, bcftools 1.21) are surgical responses to upstream
+nf-core modules requiring `--threads` (which the bundled DELLY didn't
+support). They're documented at the override site.
+
 ## Gotchas
 
-- `nf-core modules install` auto-creates `conf/containers_*.config` files and a
-  scratch `magma-results/` dir. They define `withName: 'FASTQC' { container = '…' }`
-  per OS/arch/runtime — if loaded they would **shadow the bundled-container
-  profiles** that route tools into `magma-container-1/2`. Leave them untracked
-  and do not register them as profiles. The nf-core module's in-file container
-  default is enough fallback for mode 2 above.
+- `nf-core modules install` auto-creates `conf/containers_*.config` files
+  (one per OS/arch/runtime). They define `withName: 'FASTQC' { container = '…' }`
+  per probe, so if loaded they would **shadow the bundled-container
+  profiles** that route tools into `magma-container-1/2`. Treat them as
+  scratch: do **not** register as profiles and do **not** commit. (The
+  nf-core module's in-file container default is enough fallback for
+  mode 2 above.) Same applies to the scratch `magma-results/` dir and any
+  `modules/nf-core/<tool>/` dirs from probe installs of deferred modules.
 - Lint shows pre-existing deprecation warnings in unrelated modules (stub-block
   variable scope on `tbprofiler/collate.nf` and `utils/eliminate_annotation.nf`).
   Not migration concerns; ignore.
@@ -108,91 +158,23 @@ After Tier A the user has three container modes:
   we added at the adapter. This pattern (custom meta keys + `ext.prefix` closure)
   is what lets us drive standard nf-core modules without changing the wider
   workflow shape.
+- **Workflow renames invalidate the Nextflow task hash** (process path is in
+  the hash) — each refactor of subworkflow layout costs one full re-execute.
+  Observed twice (v0.2.3 flatten, v0.2.4 8-WF split): ~29 min each on
+  abc-cluster with the 600k subsampled dataset.
+- **Refactor that mass-replaces emit-name patterns must scope to the
+  `output:` block only.** An early sweep mangled `input:` sections;
+  always anchor the regex on the output block (8-space indent for the
+  module body).
 
-## Resume point after n9 validation
+## Next milestones (after Plan 1 merges)
 
-Once the validation pipeline completes green on `feat/plan1-implement-magma`,
-return here and:
-1. Cherry-pick or rebase the migration commits onto the validated base.
-2. Run the snpdists migration through the pipeline (one process re-runs).
-3. Confirm byte-identity (modulo `-b` arg order) against torch-magma.
-4. If green, batch the next 5 trivial migrations (`samtools/index`,
-   `samtools/stats`, `delly/call`, `lofreq/filter`, `lofreq/indelqual`,
-   `snpsites`) in one sweep — they have no adapter requirements.
-
-## Next iteration: split workflows/magma.nf into logical subworkflows
-
-Currently every process shows up under the single `MAGMA:` group:
-
-    [dd/4f1407] Cached process > MAGMA:SAMPLESHEET_VALIDATION
-    [ab/55ec40] Cached process > MAGMA:BWA_MEM
-    [73/c01ad9] Cached process > MAGMA:GATK_HAPLOTYPE_CALLER
-
-The single 500-line `MAGMA` workflow does everything, so the process tree
-gives no logical grouping and resume-points are coarse.
-
-Split `workflows/magma.nf` into nested subworkflows so the same processes
-display under their logical phase, e.g.:
-
-    MAGMA:VALIDATE_INPUTS:SAMPLESHEET_VALIDATION
-    MAGMA:MAP_AND_DEDUP:BWA_MEM
-    MAGMA:CALL_VARIANTS_PER_SAMPLE:GATK_HAPLOTYPE_CALLER
-
-Proposed subworkflow boundaries (each becomes a new file under
-`subworkflows/local/`):
-
-| Subworkflow | Contains |
-|---|---|
-| `VALIDATE_INPUTS`           | `SAMPLESHEET_VALIDATION`, `FASTQ_VALIDATOR`, `UTILS_FASTQ_COHORT_VALIDATION` |
-| `PER_SAMPLE_QC`             | `FASTQC`, `NTMPROFILER_PROFILE`/`COLLATE`, `TBPROFILER_FASTQ_PROFILE`/`COLLATE`, `SPOTYPING`/`UTILS_CAT_SPOTYPING` |
-| `MAP_AND_DEDUP`             | `BWA_MEM`, `SAMTOOLS_MERGE`, `GATK_MARK_DUPLICATES`, optional `GATK_BASE_RECALIBRATOR`/`GATK_APPLY_BQSR`, `SAMTOOLS_INDEX` |
-| `PER_SAMPLE_QC_STATS`       | `SAMTOOLS_STATS`, `GATK_FLAG_STAT`, `GATK_COLLECT_WGS_METRICS`, `LOFREQ_CALL_NTM`, `UTILS_SAMPLE_STATS`, `UTILS_COHORT_STATS` |
-| `CALL_MAJOR_VARIANTS`       | `GATK_HAPLOTYPE_CALLER` (per-sample GVCFs) |
-| `CALL_MINOR_VARIANTS_LOFREQ`| `LOFREQ_INDELQUAL`, `SAMTOOLS_INDEX_LOFREQ`, `LOFREQ_CALL`, `LOFREQ_FILTER`, `UTILS_REFORMAT_LOFREQ`, `BGZIP_LOFREQ`, `GATK_INDEX_FEATURE_FILE_LOFREQ`, `BCFTOOLS_MERGE_LOFREQ`, `TBPROFILER_VCF_PROFILE_LOFREQ`/`COLLATE` |
-| `STRUCTURAL_VARIANTS_DELLY` | `BWA_MEM_DELLY`, `SAMTOOLS_MERGE_DELLY`, `GATK_MARK_DUPLICATES_DELLY`, optional BQSR_DELLY, `SAMTOOLS_INDEX_DELLY`, `DELLY_CALL`, `BCFTOOLS_VIEW_DELLY`, `BCFTOOLS_MERGE_DELLY`, `TBPROFILER_VCF_PROFILE_DELLY`/`COLLATE` |
-| `COHORT_GENOTYPING`         | `PREPARE_COHORT_VCF` (already a subworkflow), `SNP_ANALYSIS`, `INDEL_ANALYSIS`, `GATK_MERGE_VCFS_INC`, `MAJOR_VARIANT_ANALYSIS` |
-| `PHYLOGENY_AND_CLUSTERING`  | `PHYLOGENY_ANALYSIS_EXCOMPLEX`/`INCCOMPLEX`, `CLUSTER_ANALYSIS_EXCOMPLEX`/`INCCOMPLEX` |
-| `RESISTANCE_SUMMARIES`      | `UTILS_SUMMARIZE_RESISTANCE_RESULTS`, `UTILS_SUMMARIZE_RESISTANCE_RESULTS_MIXED_INFECTION` |
-| `REPORTING`                 | `UTILS_MERGE_COHORT_STATS`, `MULTIQC` |
-
-The main `MAGMA` workflow becomes ~80 lines, just composing the above:
-
-```groovy
-workflow MAGMA {
-    take: ch_samplesheet; multiqc_config; outdir
-    main:
-    VALIDATE_INPUTS(ch_samplesheet)
-    PER_SAMPLE_QC(VALIDATE_INPUTS.out.approved_fastqs_ch)
-    MAP_AND_DEDUP(VALIDATE_INPUTS.out.approved_fastqs_ch)
-    PER_SAMPLE_QC_STATS(MAP_AND_DEDUP.out.recalibrated_bam_ch, …)
-    CALL_MAJOR_VARIANTS(MAP_AND_DEDUP.out.indexed_bam_ch, …)
-    CALL_MINOR_VARIANTS_LOFREQ(MAP_AND_DEDUP.out.recalibrated_bam_ch, …)
-    STRUCTURAL_VARIANTS_DELLY(VALIDATE_INPUTS.out.approved_fastqs_ch, …)
-    COHORT_GENOTYPING(CALL_MAJOR_VARIANTS.out.gvcf_ch,
-                      PER_SAMPLE_QC_STATS.out.approved_samples_ch,
-                      CALL_MINOR_VARIANTS_LOFREQ.out.lofreq_vcf_tuple_ch, …)
-    PHYLOGENY_AND_CLUSTERING(COHORT_GENOTYPING.out.snp_exc_vcf_ch, …)
-    RESISTANCE_SUMMARIES(PER_SAMPLE_QC_STATS.out.merged_cohort_stats_ch,
-                         COHORT_GENOTYPING.out.major_variants_results_ch,
-                         CALL_MINOR_VARIANTS_LOFREQ.out.tbprofiler_collate_lofreq_ch,
-                         STRUCTURAL_VARIANTS_DELLY.out.tbprofiler_collate_delly_ch)
-    REPORTING(VALIDATE_INPUTS.out.fastqc_zips_ch,
-              PER_SAMPLE_QC_STATS.out.merged_cohort_stats_ch,
-              PHYLOGENY_AND_CLUSTERING.out.snp_dists_ch, …)
-}
-```
-
-Benefits beyond cosmetics:
-
-1. **Resume / continuation checkpoints**: each subworkflow becomes a natural
-   re-entry point (`-entry <subworkflow>` once we promote them to top-level
-   workflows for partial runs).
-2. **Test in isolation**: nf-test snapshots per subworkflow; the existing
-   per-process snapshots stay the same.
-3. **Plan-2 reuse**: M. bovis integration can replace `PER_SAMPLE_QC`
-   (different organism-profile flow) without touching the rest.
-4. **Readability**: 11 × ~50-line subworkflow files beats 1 × 500-line workflow.
-
-Scope estimate: ~1 day of refactor + a SciVer-validated run. No process
-commands change; only the workflow file layout, so cache hashes stay
-identical and the existing resumed workdir keeps working.
+1. **Plan 1 PR → main** (this PR). After merge: tag `v0.3.0`.
+2. **NF_CORE_TBANALYZER integration** — include `MAGMA` as a subworkflow
+   in `NF_CORE_TBANALYZER`. Display becomes
+   `NF_CORE_TBANALYZER:MAGMA:<WF>:<process>`. No changes to MAGMA itself.
+3. **Plan 2 — M. bovis integration** (`feat/plan2-mbovis`, 8 stages:
+   organism profile, `mbovis.config`, SnpEff param, resource files).
+   Blocked on Plan 1 merge.
+4. **Pick up deferred modules** (variantrecalibrator, snpsites,
+   select_variants PHYLOGENY) opportunistically — each is independent.
