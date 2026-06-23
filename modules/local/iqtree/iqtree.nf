@@ -21,13 +21,13 @@ process IQTREE {
     task.ext.when == null || task.ext.when
 
     script:
-    if (params.iqtree_standard_bootstrap) {
+    if (params.magma_iqtree_standard_bootstrap) {
         arguments = '-b 1000'
-    } else if (params.iqtree_fast_ml_only) {
+    } else if (params.magma_iqtree_fast_ml_only) {
         arguments = '-fast'
-    } else if (params.iqtree_fast_bootstrapped_phylogeny) {
+    } else if (params.magma_iqtree_fast_bootstrapped_phylogeny) {
         arguments = '-bb 1000 -alrt 1000'
-    } else if (params.iqtree_accurate_ml_only) {
+    } else if (params.magma_iqtree_accurate_ml_only) {
         arguments = '-allnni'
     } else {
         arguments = '-allnni'

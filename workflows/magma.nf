@@ -106,12 +106,12 @@ workflow MAGMA {
     // =========================================================================
     // SAMPLESHEET VALIDATION + FASTQ VALIDATION
     // NOTE: MAGMA uses its own CSV format (study, sample, library, …, r1, r2).
-    //       We run SAMPLESHEET_VALIDATION directly on params.input_samplesheet
+    //       We run SAMPLESHEET_VALIDATION directly on params.magma_input_samplesheet
     //       rather than relying on the nf-schema-parsed ch_samplesheet, which
     //       expects a different schema.
     // =========================================================================
 
-    SAMPLESHEET_VALIDATION(file(params.input_samplesheet ?: params.input, checkIfExists: true))
+    SAMPLESHEET_VALIDATION(file(params.magma_input_samplesheet ?: params.input, checkIfExists: true))
 
     // Build a per-FASTQ-file channel from the validated JSON
     fastqs_ch = SAMPLESHEET_VALIDATION.out.validated_samplesheet
@@ -157,21 +157,21 @@ workflow MAGMA {
     FASTQC(approved_fastqs_ch)
     ch_multiqc_files = ch_multiqc_files.mix(FASTQC.out.zip.map { _meta, file -> file })
 
-    if (!params.skip_ntmprofiler) {
+    if (!params.magma_skip_ntmprofiler) {
         NTMPROFILER_PROFILE(approved_fastqs_ch)
-        NTMPROFILER_COLLATE(params.vcf_name, NTMPROFILER_PROFILE.out.profile_json.collect())
+        NTMPROFILER_COLLATE(params.magma_vcf_name, NTMPROFILER_PROFILE.out.profile_json.collect())
     }
 
-    if (!params.skip_tbprofiler_fastq) {
+    if (!params.magma_skip_tbprofiler_fastq) {
         TBPROFILER_FASTQ_PROFILE(approved_fastqs_ch)
         TBPROFILER_FASTQ_COLLATE(
-            params.vcf_name,
+            params.magma_vcf_name,
             TBPROFILER_FASTQ_PROFILE.out.json.map { _meta, j -> j }.collect(),
             []
         )
     }
 
-    if (!params.skip_spotyping) {
+    if (!params.magma_skip_spotyping) {
         SPOTYPING(approved_fastqs_ch)
         UTILS_CAT_SPOTYPING(SPOTYPING.out.txt.collect())
     }
@@ -180,7 +180,7 @@ workflow MAGMA {
     // EARLY EXIT: only_validate_fastqs mode
     // =========================================================================
 
-    if (!params.only_validate_fastqs) {
+    if (!params.magma_only_validate_fastqs) {
 
         // =====================================================================
         // MAPPING — BWA (main pipeline)
@@ -188,10 +188,10 @@ workflow MAGMA {
 
         BWA_MEM(
             approved_fastqs_ch,
-            params.ref_fasta,
-            [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-             params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-             params.ref_fasta_sa]
+            params.magma_ref_fasta,
+            [params.magma_ref_fasta_dict, params.magma_ref_fasta_amb, params.magma_ref_fasta_ann,
+             params.magma_ref_fasta_bwt, params.magma_ref_fasta_fai, params.magma_ref_fasta_pac,
+             params.magma_ref_fasta_sa]
         )
 
         // =====================================================================
@@ -223,15 +223,15 @@ workflow MAGMA {
         // and intervals. fasta/fai/dict/dbsnp/dbsnp_tbi all wrapped as value
         // tuples. ApplyBQSR has a similar shape and takes the BQSR table joined
         // back with the original bam.
-        if (!params.skip_base_recalibration) {
+        if (!params.magma_skip_base_recalibration) {
             def base_recal_input_ch = GATK_MARK_DUPLICATES.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
             GATK_BASE_RECALIBRATOR(
                 base_recal_input_ch,
-                Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta)      ]),
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_fai)  ]),
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_dict) ]),
+                Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf)      ]),
+                Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf_tbi)  ])
             )
             // ApplyBQSR input: [meta, bam, bai, bqsr_table, intervals]
             def apply_bqsr_input_ch = GATK_BASE_RECALIBRATOR.out.table
@@ -239,9 +239,9 @@ workflow MAGMA {
                 .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
             GATK_APPLY_BQSR(
                 apply_bqsr_input_ch,
-                file(params.ref_fasta),
-                file(params.ref_fasta_fai),
-                file(params.ref_fasta_dict)
+                file(params.magma_ref_fasta),
+                file(params.magma_ref_fasta_fai),
+                file(params.magma_ref_fasta_dict)
             )
             recalibrated_bam_ch = GATK_APPLY_BQSR.out.bam
         } else {
@@ -264,9 +264,9 @@ workflow MAGMA {
         def haplotype_caller_input_ch = recalibrated_indexed_bam_ch.map { meta, bai, bam -> [ meta, bam, bai, [], [] ] }
         GATK_HAPLOTYPE_CALLER(
             haplotype_caller_input_ch,
-            Channel.value([ [id: 'ref'],   file(params.ref_fasta)      ]),
-            Channel.value([ [id: 'ref'],   file(params.ref_fasta_fai)  ]),
-            Channel.value([ [id: 'ref'],   file(params.ref_fasta_dict) ]),
+            Channel.value([ [id: 'ref'],   file(params.magma_ref_fasta)      ]),
+            Channel.value([ [id: 'ref'],   file(params.magma_ref_fasta_fai)  ]),
+            Channel.value([ [id: 'ref'],   file(params.magma_ref_fasta_dict) ]),
             Channel.value([ [id: 'none'],  [] ]),
             Channel.value([ [id: 'none'],  [] ])
         )
@@ -274,21 +274,21 @@ workflow MAGMA {
         // NTM contamination estimate via LoFreq call at 16S locus
         LOFREQ_CALL_NTM(
             recalibrated_indexed_bam_ch,
-            params.ref_fasta,
-            [params.ref_fasta_fai]
+            params.magma_ref_fasta,
+            [params.magma_ref_fasta_fai]
         )
 
         // LoFreq minor-variant calling.
         // nf-core LOFREQ_INDELQUAL takes the reference as a value tuple
-        // (tuple val(meta2), path(fasta)); wrap params.ref_fasta accordingly.
-        def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta) ])
+        // (tuple val(meta2), path(fasta)); wrap params.magma_ref_fasta accordingly.
+        def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta) ])
         LOFREQ_INDELQUAL(recalibrated_bam_ch, lofreq_indelqual_ref_ch)
         SAMTOOLS_INDEX_LOFREQ(LOFREQ_INDELQUAL.out.bam)
         // Same [meta, bai, bam] rebuild as above — LOFREQ_CALL expects the 3-tuple.
         def lofreq_indexed_bam_ch = SAMTOOLS_INDEX_LOFREQ.out.index.join(LOFREQ_INDELQUAL.out.bam)
-        LOFREQ_CALL(lofreq_indexed_bam_ch, params.ref_fasta, [params.ref_fasta_fai])
+        LOFREQ_CALL(lofreq_indexed_bam_ch, params.magma_ref_fasta, [params.magma_ref_fasta_fai])
         // nf-core LOFREQ_FILTER takes only (tuple val(meta), path(vcf)) — the
-        // reference fasta isn't needed by `lofreq filter`. Drop the params.ref_fasta
+        // reference fasta isn't needed by `lofreq filter`. Drop the params.magma_ref_fasta
         // arg that the local module accepted but never used.
         LOFREQ_FILTER(LOFREQ_CALL.out)
 
@@ -309,10 +309,10 @@ workflow MAGMA {
         // so we pad the bam-only channel with `[]` for the index (samtools stats
         // doesn't require one) and pass the reference as a value tuple.
         def samtools_stats_input_ch = recalibrated_bam_ch.map { meta, bam -> [meta, bam, []] }
-        def samtools_stats_ref_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta), file(params.ref_fasta_fai) ])
+        def samtools_stats_ref_ch   = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta), file(params.magma_ref_fasta_fai) ])
         SAMTOOLS_STATS(samtools_stats_input_ch, samtools_stats_ref_ch)
-        GATK_COLLECT_WGS_METRICS(recalibrated_bam_ch, params.ref_fasta)
-        GATK_FLAG_STAT(recalibrated_bam_ch, params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict])
+        GATK_COLLECT_WGS_METRICS(recalibrated_bam_ch, params.magma_ref_fasta)
+        GATK_FLAG_STAT(recalibrated_bam_ch, params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict])
 
         sample_stats_ch = SAMTOOLS_STATS.out.stats
             .join(GATK_COLLECT_WGS_METRICS.out)
@@ -335,7 +335,7 @@ workflow MAGMA {
             .collectFile(name: "${outdir}/minor_variant_vcfs.txt", newLine: true)
 
         BCFTOOLS_MERGE_LOFREQ(
-            params.vcf_name,
+            params.magma_vcf_name,
             'lofreq',
             vcfs_file,
             lofreq_vcf_tuple_ch
@@ -347,7 +347,7 @@ workflow MAGMA {
         def resistanceDb = []
         TBPROFILER_VCF_PROFILE_LOFREQ(BCFTOOLS_MERGE_LOFREQ.out, resistanceDb)
         TBPROFILER_COLLATE_LOFREQ(
-            params.vcf_name,
+            params.magma_vcf_name,
             TBPROFILER_VCF_PROFILE_LOFREQ.out.collect(),
             resistanceDb
         )
@@ -379,10 +379,10 @@ workflow MAGMA {
 
         BWA_MEM_DELLY(
             approved_fastqs_ch,
-            params.ref_fasta,
-            [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-             params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-             params.ref_fasta_sa]
+            params.magma_ref_fasta,
+            [params.magma_ref_fasta_dict, params.magma_ref_fasta_amb, params.magma_ref_fasta_ann,
+             params.magma_ref_fasta_bwt, params.magma_ref_fasta_fai, params.magma_ref_fasta_pac,
+             params.magma_ref_fasta_sa]
         )
 
         delly_normalize_ch = BWA_MEM_DELLY.out
@@ -409,24 +409,24 @@ workflow MAGMA {
         SAMTOOLS_MERGE_DELLY(samtools_merge_delly_input_ch, Channel.value([ [id: 'none'], [], [], [] ]))
         GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out, [], [])
 
-        if (!params.skip_base_recalibration) {
+        if (!params.magma_skip_base_recalibration) {
             def base_recal_delly_input_ch = GATK_MARK_DUPLICATES_DELLY.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
             GATK_BASE_RECALIBRATOR_DELLY(
                 base_recal_delly_input_ch,
-                Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
-                Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
-                Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta)      ]),
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_fai)  ]),
+                Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_dict) ]),
+                Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf)      ]),
+                Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf_tbi)  ])
             )
             def apply_bqsr_delly_input_ch = GATK_BASE_RECALIBRATOR_DELLY.out.table
                 .join(GATK_MARK_DUPLICATES_DELLY.out.bam)
                 .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
             GATK_APPLY_BQSR_DELLY(
                 apply_bqsr_delly_input_ch,
-                file(params.ref_fasta),
-                file(params.ref_fasta_fai),
-                file(params.ref_fasta_dict)
+                file(params.magma_ref_fasta),
+                file(params.magma_ref_fasta_fai),
+                file(params.magma_ref_fasta_dict)
             )
             recal_delly_ch = GATK_APPLY_BQSR_DELLY.out.bam
         } else {
@@ -442,8 +442,8 @@ workflow MAGMA {
         def delly_call_input_ch = SAMTOOLS_INDEX_DELLY.out.index
             .join(recal_delly_ch)
             .map { meta, bai, bam -> [ meta, bam, bai, [], [], [] ] }
-        def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta)     ])
-        def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta_fai) ])
+        def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta)     ])
+        def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta_fai) ])
         DELLY_CALL(delly_call_input_ch, delly_call_fasta_ch, delly_call_fai_ch, 'bcf')
         // nf-core BCFTOOLS_VIEW takes [meta, vcf, index] (the index can be passed
         // empty []); we have DELLY_CALL.out.bcf=[meta, bcf] and .csi=[meta, csi],
@@ -472,7 +472,7 @@ workflow MAGMA {
             .collectFile(name: "${outdir}/structural_variant_vcfs.txt", newLine: true)
 
         BCFTOOLS_MERGE_DELLY(
-            params.vcf_name,
+            params.magma_vcf_name,
             'delly',
             delly_vcfs_file,
             delly_vcfs_ch
@@ -480,7 +480,7 @@ workflow MAGMA {
 
         TBPROFILER_VCF_PROFILE_DELLY(BCFTOOLS_MERGE_DELLY.out, resistanceDb)
         TBPROFILER_COLLATE_DELLY(
-            params.vcf_name,
+            params.magma_vcf_name,
             TBPROFILER_VCF_PROFILE_DELLY.out.collect(),
             resistanceDb
         )
@@ -489,7 +489,7 @@ workflow MAGMA {
         // MERGE_WF — cohort joint-genotyping + phylogeny
         // =====================================================================
 
-        if (!params.skip_merge_analysis) {
+        if (!params.magma_skip_merge_analysis) {
 
             // Build gvcf channel keyed on the sample name so it can join the
             // approved-samples channel (which carries sample-name Strings).
@@ -546,12 +546,12 @@ workflow MAGMA {
 
             // ExComplex phylogeny (excludes DR loci + complex/repetitive regions)
             excomplex_exclude_interval_ref_ch = Channel.of(
-                file(params.coll2018_vcf),
-                file(params.coll2018_vcf_tbi),
-                file(params.excluded_loci_list)
+                file(params.magma_coll2018_vcf),
+                file(params.magma_coll2018_vcf_tbi),
+                file(params.magma_excluded_loci_list)
             ).flatten()
 
-            if (!params.skip_phylogeny_and_clustering) {
+            if (!params.magma_skip_phylogeny_and_clustering) {
                 PHYLOGENY_ANALYSIS_EXCOMPLEX(
                     Channel.value('ExDR.ExComplex'),
                     excomplex_exclude_interval_ref_ch,
@@ -569,10 +569,10 @@ workflow MAGMA {
             }
 
             // IncComplex phylogeny (excludes DR loci only)
-            if (!params.skip_complex_regions && !params.skip_phylogeny_and_clustering) {
+            if (!params.magma_skip_complex_regions && !params.magma_skip_phylogeny_and_clustering) {
                 inccomplex_exclude_interval_ref_ch = Channel.of(
-                    file(params.coll2018_vcf),
-                    file(params.coll2018_vcf_tbi)
+                    file(params.magma_coll2018_vcf),
+                    file(params.magma_coll2018_vcf_tbi)
                 ).flatten()
 
                 PHYLOGENY_ANALYSIS_INCCOMPLEX(

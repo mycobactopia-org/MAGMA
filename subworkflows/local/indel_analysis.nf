@@ -28,9 +28,9 @@ workflow INDEL_ANALYSIS {
     GATK_SELECT_VARIANTS_EXCLUSION_INDEL(
         'INDEL',
         select_indel_vcftuple_ch,
-        params.rrna_list,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_rrna_list,
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     emit:

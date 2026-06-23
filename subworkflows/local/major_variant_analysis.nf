@@ -15,7 +15,7 @@ workflow MAJOR_VARIANT_ANALYSIS {
     TBPROFILER_VCF_PROFILE_COHORT(merged_vcf_ch, resistanceDb)
 
     TBPROFILER_COLLATE_COHORT(
-        params.vcf_name,
+        params.magma_vcf_name,
         TBPROFILER_VCF_PROFILE_COHORT.out.collect(),
         resistanceDb
     )

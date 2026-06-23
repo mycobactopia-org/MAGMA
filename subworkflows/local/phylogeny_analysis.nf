@@ -36,8 +36,8 @@ workflow PHYLOGENY_ANALYSIS {
         args_ch,
         resources_files_ch,
         resources_file_indexes_ch,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     GATK_VARIANTS_TO_TABLE(prefix_ch, GATK_SELECT_VARIANTS_PHYLOGENY.out.variantsVcfTuple)

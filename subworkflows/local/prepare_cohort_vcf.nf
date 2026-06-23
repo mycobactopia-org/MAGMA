@@ -25,17 +25,17 @@ workflow PREPARE_COHORT_VCF {
         .filter { it instanceof java.nio.file.Path }
         .collect()
 
-    def refExitRifGvcf    = params.use_ref_gvcf ? file(params.ref_gvcf,     checkIfExists: true) : []
-    def refExitRifGvcfTbi = params.use_ref_gvcf ? file(params.ref_gvcf_tbi, checkIfExists: true) : []
+    def refExitRifGvcf    = params.magma_use_ref_gvcf ? file(params.magma_ref_gvcf,     checkIfExists: true) : []
+    def refExitRifGvcfTbi = params.magma_use_ref_gvcf ? file(params.magma_ref_gvcf_tbi, checkIfExists: true) : []
 
     GATK_COMBINE_GVCFS(
-        params.vcf_name,
+        params.magma_vcf_name,
         gvcfs_string_ch,
         gvcfs_paths_ch,
-        params.ref_fasta,
+        params.magma_ref_fasta,
         refExitRifGvcf,
         refExitRifGvcfTbi,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     // Wrap the joint_name output in a meta map for downstream consistency
@@ -48,14 +48,14 @@ workflow PREPARE_COHORT_VCF {
     def genotype_input_ch = combined_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, [], [] ] }
     GATK_GENOTYPE_GVCFS(
         genotype_input_ch,
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta)      ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_fai)  ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_dict) ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta)      ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_dict) ]),
         Channel.value([ [id: 'none'], [] ]),
         Channel.value([ [id: 'none'], [] ])
     )
 
-    SNPEFF(GATK_GENOTYPE_GVCFS.out.vcf, params.ref_fasta)
+    SNPEFF(GATK_GENOTYPE_GVCFS.out.vcf, params.magma_ref_fasta)
 
     BGZIP(SNPEFF.out)
 

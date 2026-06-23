@@ -20,7 +20,7 @@ process GATK_VARIANTS_TO_TABLE {
 
     variant_table_to_fasta.py !{meta.id}.!{prefix}.table \
         !{meta.id}.!{prefix}.fa \
-        !{params.cutoff_site_representation}
+        !{params.magma_cutoff_site_representation}
     '''
 
     stub:

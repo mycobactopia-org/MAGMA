@@ -21,10 +21,10 @@ workflow SNP_ANALYSIS {
 
     // Build resource file channels for VQSR
     arg_files_ch = Channel.of(
-            ["coll2014,known=false,training=true,truth=true,prior=15.0",  file(params.coll2014_vcf),   file(params.coll2014_vcf_tbi)],
-            ["coll2018,known=false,training=true,truth=true,prior=15.0",  file(params.coll2018_vcf),   file(params.coll2018_vcf_tbi)],
-            ["Napier2020,known=false,training=true,truth=true,prior=15.0",file(params.napier2020_vcf), file(params.napier2020_vcf_tbi)],
-            ["Benavente2015,known=true,training=false,truth=false,prior=5.0",file(params.benavente2015_vcf),file(params.benavente2015_vcf_tbi)]
+            ["coll2014,known=false,training=true,truth=true,prior=15.0",  file(params.magma_coll2014_vcf),   file(params.magma_coll2014_vcf_tbi)],
+            ["coll2018,known=false,training=true,truth=true,prior=15.0",  file(params.magma_coll2018_vcf),   file(params.magma_coll2018_vcf_tbi)],
+            ["Napier2020,known=false,training=true,truth=true,prior=15.0",file(params.magma_napier2020_vcf), file(params.magma_napier2020_vcf_tbi)],
+            ["Benavente2015,known=true,training=false,truth=false,prior=5.0",file(params.magma_benavente2015_vcf),file(params.magma_benavente2015_vcf_tbi)]
         )
         .ifEmpty([])
         .map { row -> row != [] ? [ "${row[0]} ${row[1].getName()}", row[1], row[2] ] : [] }
@@ -50,7 +50,7 @@ workflow SNP_ANALYSIS {
     // expect. nf-core SelectVariants emits .vcf and .tbi as separate channels.
     def select_snp_vcftuple_ch = GATK_SELECT_VARIANTS_SNP.out.tbi.join(GATK_SELECT_VARIANTS_SNP.out.vcf)
 
-    if (!params.skip_variant_recalibration) {
+    if (!params.magma_skip_variant_recalibration) {
 
         // Optimized VQSR: try 6 annotation combinations and pick the best
         OPTIMIZE_VARIANT_RECALIBRATION(
@@ -73,8 +73,8 @@ workflow SNP_ANALYSIS {
             args_ch,
             resources_files_ch,
             resources_file_indexes_ch,
-            params.ref_fasta,
-            [params.ref_fasta_fai, params.ref_fasta_dict]
+            params.magma_ref_fasta,
+            [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
         )
 
         vqsr_ch = select_snp_vcftuple_ch
@@ -95,9 +95,9 @@ workflow SNP_ANALYSIS {
     }
     GATK_APPLY_VQSR_SNP(
         apply_vqsr_input_ch,
-        file(params.ref_fasta),
-        file(params.ref_fasta_fai),
-        file(params.ref_fasta_dict)
+        file(params.magma_ref_fasta),
+        file(params.magma_ref_fasta_fai),
+        file(params.magma_ref_fasta_dict)
     )
 
     // Downstream consumers used the local `filteredVcfTuple` emit shape [meta, tbi, vcf].
@@ -108,9 +108,9 @@ workflow SNP_ANALYSIS {
     GATK_SELECT_VARIANTS_EXCLUSION_SNP(
         'SNP',
         apply_vqsr_snp_filtered_ch,
-        params.rrna_list,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_rrna_list,
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     emit:

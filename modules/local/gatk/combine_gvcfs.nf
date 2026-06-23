@@ -19,7 +19,7 @@ process GATK_COMBINE_GVCFS {
 
     script:
     def args = task.ext.args ?: ''
-    def optionalRefExitRifGvcf = params.use_ref_gvcf ? "--variant ${ref_exit_rif_gvcf}" : ""
+    def optionalRefExitRifGvcf = params.magma_use_ref_gvcf ? "--variant ${ref_exit_rif_gvcf}" : ""
     """
     gatk CombineGVCFs --java-options "-Xmx${task.memory.giga}G" \\
         -R ${ref_fasta} \\
