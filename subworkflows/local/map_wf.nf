@@ -19,10 +19,10 @@ workflow MAP_WF {
 
     BWA_MEM(
         approved_fastqs_ch,
-        params.ref_fasta,
-        [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-         params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-         params.ref_fasta_sa]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_dict, params.magma_ref_fasta_amb, params.magma_ref_fasta_ann,
+         params.magma_ref_fasta_bwt, params.magma_ref_fasta_fai, params.magma_ref_fasta_pac,
+         params.magma_ref_fasta_sa]
     )
 
     emit:

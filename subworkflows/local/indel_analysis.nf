@@ -24,7 +24,7 @@ workflow INDEL_ANALYSIS {
 
     // Exclude rRNA loci from indel VCF. Uses the patched nf-core gatk4/selectvariants
     // with ext.intervals_mode = 'exclude' (see conf/modules.config).
-    def exclude_indel_input_ch = select_indel_vcftuple_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, file(params.rrna_list) ] }
+    def exclude_indel_input_ch = select_indel_vcftuple_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, file(params.magma_rrna_list) ] }
     GATK_SELECT_VARIANTS_EXCLUSION_INDEL(exclude_indel_input_ch)
     def exclude_indel_vcftuple_ch = GATK_SELECT_VARIANTS_EXCLUSION_INDEL.out.tbi.join(GATK_SELECT_VARIANTS_EXCLUSION_INDEL.out.vcf)
 

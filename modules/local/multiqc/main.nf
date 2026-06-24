@@ -22,14 +22,14 @@ process MULTIQC {
     // step diverge from — and fail against — the MAGMA multiqc_config.yml).
     script:
     def config = multiqc_config ? "--config ${multiqc_config}" : ''
-    def arg_skip_merge_analysis = !params.skip_merge_analysis ? '' : '--skip_merge_analysis'
+    def arg_skip_merge_analysis = !params.magma_skip_merge_analysis ? '' : '--skip_merge_analysis'
     """
     preprocess_multiqc_input.py \\
         ${arg_skip_merge_analysis} \\
         --merged_cohort_stats joint.merged_cohort_stats.tsv \\
         --distance_matrix joint.ExDR.ExComplex.snp_dists.tsv
 
-    ${params.multiqc_path} ${config} .
+    multiqc ${config} .
     """
 
     stub:

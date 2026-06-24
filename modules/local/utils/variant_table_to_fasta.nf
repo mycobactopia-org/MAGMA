@@ -19,7 +19,7 @@ process UTILS_VARIANT_TABLE_TO_FASTA {
     script:
     def prefix = task.ext.prefix ?: "${meta.id}"
     """
-    variant_table_to_fasta.py ${table} ${prefix}.fa ${params.cutoff_site_representation}
+    variant_table_to_fasta.py ${table} ${prefix}.fa ${params.magma_cutoff_site_representation}
     """
 
     stub:

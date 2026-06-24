@@ -54,12 +54,12 @@ workflow MAGMA {
     // =========================================================================
     // SAMPLESHEET VALIDATION + FASTQ VALIDATION
     // NOTE: MAGMA uses its own CSV format (study, sample, library, …, r1, r2).
-    //       We run SAMPLESHEET_VALIDATION directly on params.input_samplesheet
+    //       We run SAMPLESHEET_VALIDATION directly on params.magma_input_samplesheet
     //       rather than relying on the nf-schema-parsed ch_samplesheet, which
     //       expects a different schema.
     // =========================================================================
 
-    SAMPLESHEET_VALIDATION(file(params.input_samplesheet ?: params.input, checkIfExists: true))
+    SAMPLESHEET_VALIDATION(file(params.magma_input_samplesheet ?: params.input, checkIfExists: true))
 
     VALIDATE_FASTQS_WF(
         SAMPLESHEET_VALIDATION.out.validated_samplesheet,
@@ -78,7 +78,7 @@ workflow MAGMA {
     // EARLY EXIT: only_validate_fastqs mode
     // =========================================================================
 
-    if (!params.only_validate_fastqs) {
+    if (!params.magma_only_validate_fastqs) {
 
         // =====================================================================
         // MAPPING — MAP_WF (BWA-MEM)
@@ -131,7 +131,7 @@ workflow MAGMA {
         // MERGE_WF — cohort joint-genotyping + phylogeny + clustering
         // =====================================================================
 
-        if (!params.skip_merge_analysis) {
+        if (!params.magma_skip_merge_analysis) {
 
             MERGE_WF(
                 CALL_WF.out.gvcf_tbi_ch,
@@ -191,7 +191,7 @@ workflow MAGMA {
     // The MULTIQC report channel for PIPELINE_COMPLETION.  We guard against the
     // skip_merge_analysis / only_validate_fastqs paths where REPORTS_WF never
     // runs by emitting an empty channel in that case.
-    multiqc_report = (params.only_validate_fastqs || params.skip_merge_analysis)
+    multiqc_report = (params.magma_only_validate_fastqs || params.magma_skip_merge_analysis)
         ? channel.empty()
         : REPORTS_WF.out.multiqc_report
     versions       = ch_versions

@@ -27,7 +27,7 @@ workflow MINOR_VARIANTS_ANALYSIS_WF {
         .collectFile(name: "${outdir}/minor_variant_vcfs.txt", newLine: true)
 
     BCFTOOLS_MERGE_LOFREQ(
-        params.vcf_name,
+        params.magma_vcf_name,
         'lofreq',
         vcfs_file,
         reformatted_lofreq_vcfs_tuple_ch
@@ -39,7 +39,7 @@ workflow MINOR_VARIANTS_ANALYSIS_WF {
     def resistanceDb = []
     TBPROFILER_VCF_PROFILE_LOFREQ(BCFTOOLS_MERGE_LOFREQ.out, resistanceDb)
     TBPROFILER_COLLATE_LOFREQ(
-        params.vcf_name,
+        params.magma_vcf_name,
         TBPROFILER_VCF_PROFILE_LOFREQ.out.collect(),
         resistanceDb
     )

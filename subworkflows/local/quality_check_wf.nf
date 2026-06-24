@@ -24,21 +24,21 @@ workflow QUALITY_CHECK_WF {
 
     FASTQC(approved_fastqs_ch)
 
-    if (!params.skip_ntmprofiler) {
+    if (!params.magma_skip_ntmprofiler) {
         NTMPROFILER_PROFILE(approved_fastqs_ch)
-        NTMPROFILER_COLLATE(params.vcf_name, NTMPROFILER_PROFILE.out.profile_json.collect())
+        NTMPROFILER_COLLATE(params.magma_vcf_name, NTMPROFILER_PROFILE.out.profile_json.collect())
     }
 
-    if (!params.skip_tbprofiler_fastq) {
+    if (!params.magma_skip_tbprofiler_fastq) {
         TBPROFILER_FASTQ_PROFILE(approved_fastqs_ch)
         TBPROFILER_FASTQ_COLLATE(
-            params.vcf_name,
+            params.magma_vcf_name,
             TBPROFILER_FASTQ_PROFILE.out.json.map { _meta, j -> j }.collect(),
             []
         )
     }
 
-    if (!params.skip_spotyping) {
+    if (!params.magma_skip_spotyping) {
         SPOTYPING(approved_fastqs_ch)
         UTILS_CAT_SPOTYPING(SPOTYPING.out.txt.collect())
     }

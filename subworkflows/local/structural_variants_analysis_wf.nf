@@ -33,10 +33,10 @@ workflow STRUCTURAL_VARIANTS_ANALYSIS_WF {
 
     BWA_MEM_DELLY(
         validated_reads_ch,
-        params.ref_fasta,
-        [params.ref_fasta_dict, params.ref_fasta_amb, params.ref_fasta_ann,
-         params.ref_fasta_bwt, params.ref_fasta_fai, params.ref_fasta_pac,
-         params.ref_fasta_sa]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_dict, params.magma_ref_fasta_amb, params.magma_ref_fasta_ann,
+         params.magma_ref_fasta_bwt, params.magma_ref_fasta_fai, params.magma_ref_fasta_pac,
+         params.magma_ref_fasta_sa]
     )
 
     def delly_normalize_ch = BWA_MEM_DELLY.out
@@ -58,24 +58,24 @@ workflow STRUCTURAL_VARIANTS_ANALYSIS_WF {
     GATK_MARK_DUPLICATES_DELLY(SAMTOOLS_MERGE_DELLY.out.bam, [], [])
 
     def recal_delly_ch
-    if (!params.skip_base_recalibration) {
+    if (!params.magma_skip_base_recalibration) {
         def base_recal_delly_input_ch = GATK_MARK_DUPLICATES_DELLY.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
         GATK_BASE_RECALIBRATOR_DELLY(
             base_recal_delly_input_ch,
-            Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
-            Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
-            Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
-            Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
-            Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta)      ]),
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_fai)  ]),
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_dict) ]),
+            Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf)      ]),
+            Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf_tbi)  ])
         )
         def apply_bqsr_delly_input_ch = GATK_BASE_RECALIBRATOR_DELLY.out.table
             .join(GATK_MARK_DUPLICATES_DELLY.out.bam)
             .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
         GATK_APPLY_BQSR_DELLY(
             apply_bqsr_delly_input_ch,
-            file(params.ref_fasta),
-            file(params.ref_fasta_fai),
-            file(params.ref_fasta_dict)
+            file(params.magma_ref_fasta),
+            file(params.magma_ref_fasta_fai),
+            file(params.magma_ref_fasta_dict)
         )
         recal_delly_ch = GATK_APPLY_BQSR_DELLY.out.bam
     } else {
@@ -87,8 +87,8 @@ workflow STRUCTURAL_VARIANTS_ANALYSIS_WF {
     def delly_call_input_ch = SAMTOOLS_INDEX_DELLY.out.index
         .join(recal_delly_ch)
         .map { meta, bai, bam -> [ meta, bam, bai, [], [], [] ] }
-    def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta)     ])
-    def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta_fai) ])
+    def delly_call_fasta_ch = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta)     ])
+    def delly_call_fai_ch   = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta_fai) ])
     DELLY_CALL(delly_call_input_ch, delly_call_fasta_ch, delly_call_fai_ch, 'bcf')
 
     def bcftools_view_delly_input_ch = DELLY_CALL.out.bcf.join(DELLY_CALL.out.csi)
@@ -111,7 +111,7 @@ workflow STRUCTURAL_VARIANTS_ANALYSIS_WF {
         .collectFile(name: "${outdir}/structural_variant_vcfs.txt", newLine: true)
 
     BCFTOOLS_MERGE_DELLY(
-        params.vcf_name,
+        params.magma_vcf_name,
         'delly',
         delly_vcfs_file,
         delly_vcfs_ch
@@ -120,7 +120,7 @@ workflow STRUCTURAL_VARIANTS_ANALYSIS_WF {
     def resistanceDb = []
     TBPROFILER_VCF_PROFILE_DELLY(BCFTOOLS_MERGE_DELLY.out, resistanceDb)
     TBPROFILER_COLLATE_DELLY(
-        params.vcf_name,
+        params.magma_vcf_name,
         TBPROFILER_VCF_PROFILE_DELLY.out.collect(),
         resistanceDb
     )

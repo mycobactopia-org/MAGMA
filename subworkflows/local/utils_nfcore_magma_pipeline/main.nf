@@ -87,7 +87,7 @@ workflow PIPELINE_INITIALISATION {
     // MAGMA does NOT use the nf-core/nf-schema samplesheet model. It validates
     // its own 9-column samplesheet (study,sample,library,attempt,flowcell,lane,
     // index_sequence,r1,r2) via the SAMPLESHEET_VALIDATION process inside
-    // workflows/magma.nf, reading params.input_samplesheet directly. The
+    // workflows/magma.nf, reading params.magma_input_samplesheet directly. The
     // nf-schema parser (samplesheetToList against assets/schema_input.json,
     // which expects sample/fastq_1/fastq_2) cannot parse the MAGMA format and
     // would abort initialisation. MAGMA never consumes this channel, so emit an

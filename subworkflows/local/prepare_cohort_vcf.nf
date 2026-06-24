@@ -22,18 +22,18 @@ workflow PREPARE_COHORT_VCF {
         .map { paths ->
             def gvcfs = paths.findAll { it.name.endsWith('.gz') }
             def tbis  = paths.findAll { it.name.endsWith('.tbi') }
-            if (params.use_ref_gvcf) {
-                gvcfs = gvcfs + [ file(params.ref_gvcf,     checkIfExists: true) ]
-                tbis  = tbis  + [ file(params.ref_gvcf_tbi, checkIfExists: true) ]
+            if (params.magma_use_ref_gvcf) {
+                gvcfs = gvcfs + [ file(params.magma_ref_gvcf,     checkIfExists: true) ]
+                tbis  = tbis  + [ file(params.magma_ref_gvcf_tbi, checkIfExists: true) ]
             }
-            [ [id: params.vcf_name], gvcfs, tbis ]
+            [ [id: params.magma_vcf_name], gvcfs, tbis ]
         }
 
     GATK_COMBINE_GVCFS(
         combine_input_ch,
-        file(params.ref_fasta),
-        file(params.ref_fasta_fai),
-        file(params.ref_fasta_dict)
+        file(params.magma_ref_fasta),
+        file(params.magma_ref_fasta_fai),
+        file(params.magma_ref_fasta_dict)
     )
 
     // Downstream wants [meta, tbi, vcf]. nf-core emits combined_gvcf (vcf) and tbi separately
@@ -49,14 +49,14 @@ workflow PREPARE_COHORT_VCF {
     def genotype_input_ch = combined_ch.map { meta, tbi, vcf -> [ meta, vcf, tbi, [], [] ] }
     GATK_GENOTYPE_GVCFS(
         genotype_input_ch,
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta)      ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_fai)  ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_dict) ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta)      ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_dict) ]),
         Channel.value([ [id: 'none'], [] ]),
         Channel.value([ [id: 'none'], [] ])
     )
 
-    SNPEFF(GATK_GENOTYPE_GVCFS.out.vcf, params.ref_fasta)
+    SNPEFF(GATK_GENOTYPE_GVCFS.out.vcf, params.magma_ref_fasta)
 
     BGZIP(SNPEFF.out)
 

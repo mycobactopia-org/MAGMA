@@ -67,24 +67,24 @@ workflow CALL_WF {
 
     // BQSR (disabled by default for Mtb) — uses standard nf-core modules.
     def recalibrated_bam_ch
-    if (!params.skip_base_recalibration) {
+    if (!params.magma_skip_base_recalibration) {
         def base_recal_input_ch = GATK_MARK_DUPLICATES.out.bam.map { meta, bam -> [ meta, bam, [], [] ] }
         GATK_BASE_RECALIBRATOR(
             base_recal_input_ch,
-            Channel.value([ [id:'ref'],   file(params.ref_fasta)      ]),
-            Channel.value([ [id:'ref'],   file(params.ref_fasta_fai)  ]),
-            Channel.value([ [id:'ref'],   file(params.ref_fasta_dict) ]),
-            Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf)      ]),
-            Channel.value([ [id:'dbsnp'], file(params.dbsnp_vcf_tbi)  ])
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta)      ]),
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_fai)  ]),
+            Channel.value([ [id:'ref'],   file(params.magma_ref_fasta_dict) ]),
+            Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf)      ]),
+            Channel.value([ [id:'dbsnp'], file(params.magma_dbsnp_vcf_tbi)  ])
         )
         def apply_bqsr_input_ch = GATK_BASE_RECALIBRATOR.out.table
             .join(GATK_MARK_DUPLICATES.out.bam)
             .map { meta, table, bam -> [ meta, bam, [], table, [] ] }
         GATK_APPLY_BQSR(
             apply_bqsr_input_ch,
-            file(params.ref_fasta),
-            file(params.ref_fasta_fai),
-            file(params.ref_fasta_dict)
+            file(params.magma_ref_fasta),
+            file(params.magma_ref_fasta_fai),
+            file(params.magma_ref_fasta_dict)
         )
         recalibrated_bam_ch = GATK_APPLY_BQSR.out.bam
     } else {
@@ -100,9 +100,9 @@ workflow CALL_WF {
     def haplotype_caller_input_ch = recalibrated_indexed_bam_ch.map { meta, bai, bam -> [ meta, bam, bai, [], [] ] }
     GATK_HAPLOTYPE_CALLER(
         haplotype_caller_input_ch,
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta)      ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_fai)  ]),
-        Channel.value([ [id: 'ref'],  file(params.ref_fasta_dict) ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta)      ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'],  file(params.magma_ref_fasta_dict) ]),
         Channel.value([ [id: 'none'], [] ]),
         Channel.value([ [id: 'none'], [] ])
     )
@@ -110,16 +110,16 @@ workflow CALL_WF {
     // NTM contamination estimate via LoFreq call at 16S locus
     LOFREQ_CALL_NTM(
         recalibrated_indexed_bam_ch,
-        params.ref_fasta,
-        [params.ref_fasta_fai]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai]
     )
 
     // LoFreq minor-variant calling
-    def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.ref_fasta) ])
+    def lofreq_indelqual_ref_ch = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta) ])
     LOFREQ_INDELQUAL(recalibrated_bam_ch, lofreq_indelqual_ref_ch)
     SAMTOOLS_INDEX_LOFREQ(LOFREQ_INDELQUAL.out.bam)
     def lofreq_indexed_bam_ch = SAMTOOLS_INDEX_LOFREQ.out.index.join(LOFREQ_INDELQUAL.out.bam)
-    LOFREQ_CALL(lofreq_indexed_bam_ch, params.ref_fasta, [params.ref_fasta_fai])
+    LOFREQ_CALL(lofreq_indexed_bam_ch, params.magma_ref_fasta, [params.magma_ref_fasta_fai])
     LOFREQ_FILTER(LOFREQ_CALL.out)
 
     // Reformat LoFreq VCFs for downstream merging
@@ -132,10 +132,10 @@ workflow CALL_WF {
 
     // Per-sample QC stats
     def samtools_stats_input_ch = recalibrated_bam_ch.map { meta, bam -> [meta, bam, []] }
-    def samtools_stats_ref_ch   = Channel.value([ [id: 'ref'], file(params.ref_fasta), file(params.ref_fasta_fai) ])
+    def samtools_stats_ref_ch   = Channel.value([ [id: 'ref'], file(params.magma_ref_fasta), file(params.magma_ref_fasta_fai) ])
     SAMTOOLS_STATS(samtools_stats_input_ch, samtools_stats_ref_ch)
-    GATK_COLLECT_WGS_METRICS(recalibrated_bam_ch, params.ref_fasta)
-    GATK_FLAG_STAT(recalibrated_bam_ch, params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict])
+    GATK_COLLECT_WGS_METRICS(recalibrated_bam_ch, params.magma_ref_fasta)
+    GATK_FLAG_STAT(recalibrated_bam_ch, params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict])
 
     sample_stats_ch = SAMTOOLS_STATS.out.stats
         .join(GATK_COLLECT_WGS_METRICS.out)

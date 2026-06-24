@@ -32,8 +32,8 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
         args_ch,
         resources_files_ch,
         resources_file_indexes_ch,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN7(
@@ -48,7 +48,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
     GATK_VARIANT_RECALIBRATOR_ANN6(
         analysisType, ann6_ch, select_variants_vcftuple_ch,
         args_ch, resources_files_ch, resources_file_indexes_ch,
-        params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN6(
@@ -63,7 +63,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
     GATK_VARIANT_RECALIBRATOR_ANN5(
         analysisType, ann5_ch, select_variants_vcftuple_ch,
         args_ch, resources_files_ch, resources_file_indexes_ch,
-        params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN5(
@@ -78,7 +78,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
     GATK_VARIANT_RECALIBRATOR_ANN4(
         analysisType, ann4_ch, select_variants_vcftuple_ch,
         args_ch, resources_files_ch, resources_file_indexes_ch,
-        params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN4(
@@ -93,7 +93,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
     GATK_VARIANT_RECALIBRATOR_ANN3(
         analysisType, ann3_ch, select_variants_vcftuple_ch,
         args_ch, resources_files_ch, resources_file_indexes_ch,
-        params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN3(
@@ -108,7 +108,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
     GATK_VARIANT_RECALIBRATOR_ANN2(
         analysisType, ann2_ch, select_variants_vcftuple_ch,
         args_ch, resources_files_ch, resources_file_indexes_ch,
-        params.ref_fasta, [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta, [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     UTILS_ELIMINATE_ANNOTATION_ANN2(
@@ -149,7 +149,7 @@ workflow OPTIMIZE_VARIANT_RECALIBRATION {
         .collect()
 
     UTILS_SELECT_BEST_ANNOTATIONS(
-        params.vcf_name,
+        params.magma_vcf_name,
         annotations_and_tranches_json_files_ch,
         recal_vcf_files_ch,
         tranches_files_ch

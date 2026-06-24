@@ -27,7 +27,7 @@ process TBPROFILER_VCF_PROFILE {
     // (`[].name` == []), which tb-profiler rejects ("Can't find the database []").
     def optionalDb = resistanceDb ? "--db ${resistanceDb.name}" : ""
     """
-    bcftools view ${mergedVcf} | sed 's/${params.ref_fasta_basename}/Chromosome/g' > intermediate.vcf
+    bcftools view ${mergedVcf} | sed 's/${params.magma_ref_fasta_basename}/Chromosome/g' > intermediate.vcf
 
     cat intermediate.vcf | bcftools view -Oz -o intermediate.vcf.gz
 

@@ -71,13 +71,13 @@ workflow MERGE_WF {
 
     // ExComplex phylogeny (excludes DR loci + complex/repetitive regions)
     def excomplex_exclude_interval_ref_ch = Channel.of(
-        file(params.coll2018_vcf),
-        file(params.coll2018_vcf_tbi),
-        file(params.excluded_loci_list)
+        file(params.magma_coll2018_vcf),
+        file(params.magma_coll2018_vcf_tbi),
+        file(params.magma_excluded_loci_list)
     ).flatten()
 
     def excomplex_snp_dists_ch = Channel.empty()
-    if (!params.skip_phylogeny_and_clustering) {
+    if (!params.magma_skip_phylogeny_and_clustering) {
         PHYLOGENY_ANALYSIS_EXCOMPLEX(
             Channel.value('ExDR.ExComplex'),
             excomplex_exclude_interval_ref_ch,
@@ -93,10 +93,10 @@ workflow MERGE_WF {
     }
 
     // IncComplex phylogeny (excludes DR loci only)
-    if (!params.skip_complex_regions && !params.skip_phylogeny_and_clustering) {
+    if (!params.magma_skip_complex_regions && !params.magma_skip_phylogeny_and_clustering) {
         def inccomplex_exclude_interval_ref_ch = Channel.of(
-            file(params.coll2018_vcf),
-            file(params.coll2018_vcf_tbi)
+            file(params.magma_coll2018_vcf),
+            file(params.magma_coll2018_vcf_tbi)
         ).flatten()
 
         PHYLOGENY_ANALYSIS_INCCOMPLEX(

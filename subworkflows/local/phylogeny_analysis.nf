@@ -37,8 +37,8 @@ workflow PHYLOGENY_ANALYSIS {
         args_ch,
         resources_files_ch,
         resources_file_indexes_ch,
-        params.ref_fasta,
-        [params.ref_fasta_fai, params.ref_fasta_dict]
+        params.magma_ref_fasta,
+        [params.magma_ref_fasta_fai, params.magma_ref_fasta_dict]
     )
 
     // nf-core gatk4/variantstotable input: [meta, vcf, tbi, args_file, include_intervals, exclude_intervals]
@@ -49,9 +49,9 @@ workflow PHYLOGENY_ANALYSIS {
         .map { phylo_prefix, meta, tbi, vcf -> [ meta + [phylo_prefix: phylo_prefix], vcf, tbi, [], [], [] ] }
     GATK_VARIANTS_TO_TABLE(
         vtot_input_ch,
-        Channel.value([ [id: 'ref'], file(params.ref_fasta)      ]),
-        Channel.value([ [id: 'ref'], file(params.ref_fasta_fai)  ]),
-        Channel.value([ [id: 'ref'], file(params.ref_fasta_dict) ])
+        Channel.value([ [id: 'ref'], file(params.magma_ref_fasta)      ]),
+        Channel.value([ [id: 'ref'], file(params.magma_ref_fasta_fai)  ]),
+        Channel.value([ [id: 'ref'], file(params.magma_ref_fasta_dict) ])
     )
 
     // The local module bundled `variant_table_to_fasta.py` after gatk's table.

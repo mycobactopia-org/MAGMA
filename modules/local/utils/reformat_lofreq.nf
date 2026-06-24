@@ -18,7 +18,7 @@ process UTILS_REFORMAT_LOFREQ {
         ${meta.id}.lofreq.reformat.vcf
 
     reduce_strand_bias.py \\
-        ${params.cutoff_strand_bias} \\
+        ${params.magma_cutoff_strand_bias} \\
         ${meta.id}.lofreq.reformat.vcf \\
         ${meta.id}.lofreq.reformat.corrected.vcf
     """
