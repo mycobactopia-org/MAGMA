@@ -99,9 +99,70 @@ These were decided before Plan 1 merged and should carry forward into the rebase
 - **SnpEff strategy: dual-mode.** Default ("") = use the container's pre-installed Mtb database (zero build cost for MAGMA's MTB path). For *M. bovis*, `mbovis.config` sets `snpeff_config_file` → build DB at runtime from the staged `genes.gff` + `sequences.fa` in `resources/snpeff/data/mbovis_AF2122/`.
 - **`NO_FILE` sentinel** for optional path inputs — `assets/NO_FILE` is the convention used for "no file supplied"; modules check the basename instead of pathnull.
 
-## 7. Open questions for the M. bovis chat
+## 7. Open questions and research notes
 
-- **Truth set strategy for VQSR on *M. bovis*?** Build one from public *M. bovis* VCFs (Salvador et al.; SB number databases), or skip VQSR and fall back to GATK hard filters? Both are valid; hard filters are simpler but less defensible at low coverage.
-- **Is there a target Ti/Tv for *M. bovis*?** *M. tuberculosis* uses 1.85; *M. bovis* may differ. Quick literature check needed.
-- **What test data?** The `scripts/create_test_data.sh` subsampling script exists — needs an *M. bovis* SRA accession to pull from. Candidate datasets in the literature.
-- **Does TBprofiler have any *M. bovis* support?** Unknown as of now. If yes, partial DR profiling may be possible. If not, leave that for a future plan.
+### Truth set for GATK VQSR on *M. bovis* (answered 2026-06-30)
+
+**What MAGMA needs for Mtb VQSR (the analogues needed for M. bovis):**
+
+| Mtb input | Purpose | M. bovis analogue |
+|---|---|---|
+| `coll2018_vcf` | SNP truth/training (1,500+ phylogenetic lineage markers) | Not yet built — see options below |
+| `walker2015_vcf` / `napier2020_vcf` | INDEL truth | Not yet built |
+| `benavente2015_vcf` | Known sites for BQSR | Not yet built |
+| `ref_gvcf` (EXIT-RIF) | Reference GVCF to add diversity for small/clonal cohorts | Not yet built — arguably more important for M. bovis than the truth VCF |
+
+**Plan 2 v1 decision: hard filters (`skip_variant_recalibration = true`)**
+
+GATK's own guidance recommends hard filters when N < 30 samples or no truth VCF is available. For M. bovis both apply. The phylogenetic signal is very strong (highly clonal, low SNP density), so the VQSR Gaussian mixture model adds little over standard hard filters (`QD < 2.0`, `MQ < 40.0`, `FS > 60.0`). This is defensible in any publication.
+
+**Plan 2 v2 (publishable quality): build truth VCFs from public data**
+
+The best public sources for constructing M. bovis truth VCFs (analogous to Coll 2018):
+
+| Source | What it provides | Access |
+|---|---|---|
+| **APHA/Defra UK cattle TB WGS** | Thousands of UK isolates across multiple clonal complexes; deepest M. bovis WGS resource available | ENA/SRA; accession lists in Crispell et al., Smith et al. |
+| **Loiseau et al. 2020** (*Nature Microbiology*) — "An African origin for *M. bovis*" | Global phylogeny across all major clonal complexes; published SNP matrix | SRA + Supplementary |
+| **Crispell et al. 2019, 2021** (Sanger/APHA) | Cattle–badger transmission, ~thousands of UK isolates, high-confidence SNP calls | ENA, whole datasets deposited |
+| **New Zealand AgResearch datasets** | NZ TB eradication program; distinct clonal complex | SRA |
+| **Biek et al. 2012** (*Science*) | Foundational WGS paper, SNP-level data | Available |
+
+**Build recipe for the M. bovis truth VCF:**
+
+1. Pull ~100–200 M. bovis isolates spanning ≥ 3 clonal complexes (UK1, UK2, European, African) from the above sources.
+2. Call with GATK HaplotypeCaller + MAGMA's `-profile mbovis` pipeline (same pipeline we are building), using NC_002945v4 as the reference.
+3. Hard-filter for high-confidence sites: `QUAL > 200`, `DP > 20`, `AF = 1.0` (population-level fixed calls).
+4. Cross-validate with a second caller (FreeBayes or `bcftools mpileup`).
+5. Intersect → `mbovis_truth_snp.vcf.gz` and `mbovis_truth_indel.vcf.gz`.
+6. Add to `resources/truth/` and enable in `mbovis.config`.
+
+**Reference GVCF (EXIT-RIF analogue) — arguably the higher priority:**
+
+EXIT-RIF adds lineage diversity when the study cohort is small or clonal. For M. bovis (often < 20 samples per study, and highly clonal within a herd outbreak), this matters more than it does for Mtb. Build from the same APHA/Loiseau isolates:
+- Call 15–20 diverse isolates spanning different clonal complexes as gVCFs with MAGMA `-profile mbovis`
+- Store as `resources/ref_gvcfs/Mbovis_ClonalComplexes.g.vcf.gz`
+- Re-enable `use_ref_gvcf = true` in `mbovis.config` once available
+
+**Config stubs for when the above are built** (currently commented out in `mbovis.config`):
+
+```groovy
+// VQSR truth VCFs — uncomment and set skip_variant_recalibration = false
+// coll_mbovis_vcf     = "${projectDir}/resources/truth/mbovis_truth_snp.vcf.gz"
+// coll_mbovis_vcf_tbi = "${params.coll_mbovis_vcf}.tbi"
+
+// Reference GVCF for small/clonal M. bovis cohorts (EXIT-RIF analogue)
+// use_ref_gvcf = true
+// ref_gvcf     = "${projectDir}/resources/ref_gvcfs/Mbovis_ClonalComplexes.g.vcf.gz"
+// ref_gvcf_tbi = "${params.ref_gvcf}.tbi"
+```
+
+**Ti/Tv target for VQSR:** Published M. bovis WGS studies report Ti/Tv ≈ 1.7–1.9 (similar range to Mtb's 1.85). Confirm from the actual truth-set data before setting `--target-titv`. Not needed until `skip_variant_recalibration = false`.
+
+---
+
+### Other open questions
+
+- **Test data SRA accession:** `scripts/create_test_data.sh` exists but needs an *M. bovis* SRA accession. Candidate: any well-characterised APHA isolate from Crispell et al. / Loiseau et al. supplementary tables.
+- **TBprofiler *M. bovis* support:** Unknown. If the WHO TB database includes M. bovis drug resistance markers, partial DR profiling may be possible without changes to the pipeline. Check `tb-profiler version` and the bundled DB metadata.
+- **ISMapper queries for M. bovis:** IS900 and IS1081 are M. bovis-specific IS elements. Query sequences need to be assembled and added to `resources/regions/` before `skip_ismapper = false` can be used.
